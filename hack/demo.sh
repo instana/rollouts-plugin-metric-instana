@@ -61,7 +61,7 @@ print(urllib.request.urlopen(req).read().decode())
 
 resolve_host() {
   if [[ "$MODE" == "live" ]]; then
-    [[ -n "${INSTANA_HOST:-}" ]]      || die "MODE=live requires INSTANA_HOST"
+    [[ -n "${INSTANA_HOST:-}" ]]      || die "MODE=live requires INSTANA_HOST (export it, e.g. https://acme-prod.instana.io)"
     [[ -n "${INSTANA_API_TOKEN:-}" ]] || die "MODE=live requires INSTANA_API_TOKEN"
     echo "${INSTANA_HOST%/}"
   else
@@ -69,8 +69,48 @@ resolve_host() {
   fi
 }
 
+# Validate MODE=live inputs before we create or change anything.
+preflight_live() {
+  [[ "$MODE" == "live" ]] || return 0
+  local host; host="$(resolve_host)"
+
+  if command -v curl >/dev/null 2>&1; then
+    local code
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+      -H "Authorization: apiToken ${INSTANA_API_TOKEN}" \
+      "${host}/api/application-monitoring/services" || echo 000)
+    case "$code" in
+      200) info "Instana reachable and token accepted (${host})" ;;
+      401) die "Instana rejected the token (401). Check INSTANA_API_TOKEN." ;;
+      000) die "Cannot reach ${host}. Check INSTANA_HOST and network." ;;
+      *)   warn "Unexpected status ${code} from ${host}; continuing anyway" ;;
+    esac
+  fi
+
+  cat <<'EOF'
+
+[warn] MODE=live needs more than a tenant. The canary gate only returns data if:
+         1. an Instana agent is running on THIS cluster, and
+         2. the demo workload emits APM spans (it must be instrumented), and
+         3. Instana stores the `rollouts-pod-template-hash` pod label on spans.
+
+       A bare kind cluster satisfies none of these, so the AnalysisRun will come
+       back phase=Error ("returned no groups") and abort the rollout. That is
+       the plugin refusing to guess, not a bug.
+
+       To run live, use a cluster that already reports to your tenant, and point
+       the Rollout at an instrumented app:
+
+         DEMO_IMAGE=<your-instrumented-image> MODE=live ./hack/demo.sh up
+
+       Use MODE=stub (the default) for a self-contained demo.
+
+EOF
+}
+
 cmd_up() {
   need docker; need kind; need kubectl; need go
+  preflight_live
 
   info "creating kind cluster '${CLUSTER}' (if absent)"
   kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER"
@@ -92,7 +132,7 @@ cmd_up() {
   k create namespace argo-rollouts --dry-run=client -o yaml | k apply -f -
   k apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml >/dev/null
 
-  local host; host="$(resolve_host)"
+  host="$(resolve_host)"
 
   info "registering the plugin with the controller (file:// — the air-gapped path)"
   cat <<YAML | k apply -f -
@@ -117,7 +157,7 @@ YAML
     k apply -f "$ROOT/demo/stub-instana.yaml"
     k -n argo-rollouts rollout status deploy/stub-instana --timeout=120s
   else
-    warn "MODE=live: the controller must be able to reach ${host}"
+    warn "MODE=live: the controller must be able to reach ${host} from inside the cluster"
   fi
 
   info "mounting the plugin into the controller and wiring the token"
@@ -169,8 +209,12 @@ PATCH
 
   info "deploying the AnalysisTemplate and the Rollout"
   k apply -f "$ROOT/demo/rollout.yaml"
+  if [[ -n "${DEMO_IMAGE:-}" ]]; then
+    info "pointing the Rollout at ${DEMO_IMAGE}"
+    k -n demo patch rollout demo --type merge \
+      -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"demo\",\"image\":\"${DEMO_IMAGE}\"}]}}}}"
+  fi
   sed "s|__INSTANA_HOST__|${host}|g" "$ROOT/demo/analysis-template.yaml" | k apply -f -
-  k -n demo rollout status deploy 2>/dev/null || true
 
   info "waiting for the initial Rollout to settle"
   sleep 5
