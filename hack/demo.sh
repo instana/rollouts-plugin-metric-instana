@@ -125,6 +125,10 @@ YAML
 spec:
   template:
     spec:
+      # The controller pod enforces runAsNonRoot, so the initContainer must run
+      # as a non-root user; fsGroup makes the shared emptyDir writable by it.
+      securityContext:
+        fsGroup: 999
       volumes:
         - name: plugin-bin
           emptyDir: {}
@@ -132,7 +136,16 @@ spec:
         - name: copy-plugin
           image: ${IMAGE}
           imagePullPolicy: Never
-          command: ["sh","-c","cp /plugin/${BIN} /plugins/${BIN} && chmod +x /plugins/${BIN}"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          command: ["sh","-c","cp /plugin/${BIN} /plugins/${BIN} && chmod 0755 /plugins/${BIN}"]
           volumeMounts:
             - name: plugin-bin
               mountPath: /plugins

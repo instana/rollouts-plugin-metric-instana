@@ -22,16 +22,15 @@ import (
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	"github.com/hashicorp/go-hclog"
 	goPlugin "github.com/hashicorp/go-plugin"
+
+	instanaplugin "github.com/instana/rollouts-metric-plugin/pkg/plugin"
 )
 
-// Must match main.go and the controller's expectations.
-var handshakeConfig = goPlugin.HandshakeConfig{
-	ProtocolVersion:  1,
-	MagicCookieKey:   "ARGO_ROLLOUTS_RPC_PLUGIN",
-	MagicCookieValue: "metrics",
-}
+// Read from the package under test so there is exactly one definition of the
+// handshake, rather than a second guess that can silently agree with a bug.
+var handshakeConfig = instanaplugin.HandshakeConfig
 
-const pluginKey = "RpcMetricProviderPlugin"
+const pluginKey = instanaplugin.PluginKey
 
 func binaryPath(t *testing.T) string {
 	t.Helper()

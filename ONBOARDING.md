@@ -65,18 +65,23 @@ Nothing below is inferred from documentation.
 | A filter matching nothing errors instead of returning zero | live test: `phase=Error`, `"returned no groups"` |
 | The compiled binary speaks the controller's RPC protocol | integration tests dispense the real binary over go-plugin RPC; `Type()` → `"Instana"` |
 | A degraded canary produces the rollback phase | `phase=Failed` at `value=37.5` against `result <= 5.0` |
+| The real controller loads the plugin from `argo-rollouts-config` | `"Copied plugin from /plugins/... to /home/argo-rollouts/plugin-bin/instana/metrics"` |
+| Argo injects the canary hash and the plugin scopes to it | stub logged `group=7f9b9574b8`, matching the canary ReplicaSet's `rollouts-pod-template-hash` |
+| A degraded canary is **automatically rolled back** on a real cluster | `AnalysisRun` → `Failed` (`value=0.9`), Rollout → `Degraded`, canary scaled to 0 |
+| A healthy canary is **promoted** (so it is not just always failing) | `AnalysisRun` → `Successful` (`value=0.01`), Rollout → `Healthy`, image advanced |
+| `goreleaser` config builds | `goreleaser build --snapshot` succeeds and runs the `go test` hook |
 
 ### What is NOT yet proven
 
 1. **That `rollouts-pod-template-hash` actually reaches Instana spans.** The tag
    *key* is accepted (`200`, `totalHits: 0`), but the demo tenant runs no Argo
-   Rollouts workloads, so it has never been observed with a real value. **This
-   is the last open risk.** Everything else is settled.
-2. The controller loading the plugin from a real `argo-rollouts-config`
-   ConfigMap (only exercised via direct RPC so far).
-3. A full canary driven to automatic rollback on a real cluster.
-4. `.goreleaser.yml` has never been executed — `goreleaser check` must run in CI
-   before the first tag. `formats: [binary]` needs goreleaser ≥ v2.5.
+   Rollouts workloads, so it has never been observed with a real value. The
+   end-to-end demo proves Argo passes the hash and the plugin filters on it —
+   what remains is confirming Instana *stores* it on spans. **This is the last
+   open risk.** Everything else is settled.
+2. `goreleaser check` needs a git remote to validate the `release` section; only
+   `goreleaser build` has run. `formats: [binary]` needs goreleaser ≥ v2.5.
+3. The GPG signing step has never run (needs `GPG_FINGERPRINT` in CI).
 
 ---
 
@@ -141,6 +146,23 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
   the endpoint back, every canary gate becomes a cluster-wide average and will
   pass regardless of what the canary does. This is the single most dangerous
   thing in the codebase; the constant is commented accordingly.
+- **The handshake cookie is `metricprovider`, not `metrics`.** Get it wrong and
+  the controller refuses to exec the binary. It surfaces as `AnalysisRun`
+  `phase=Error` — and because `consecutiveErrorLimit` is exceeded, **the rollout
+  still aborts**. So a broken plugin looks exactly like a correctly-detected bad
+  canary. Always check `phase`: `Failed` means the metric breached the
+  condition; `Error` means the plugin is broken. `handshake.go` is the single
+  definition, pinned by `TestHandshakeMatchesController`.
+- **A test that owns both sides of a contract proves nothing.** The original
+  integration test defined its own handshake constant, so it agreed with the
+  bug and stayed green while the real controller rejected the binary. The
+  end-to-end demo is what caught it.
+- **The plugin must match the node architecture.** kind nodes run the host arch;
+  a linux/amd64 binary on an arm64 node fails the same way (Argo helpfully
+  prints `ELF architecture` vs `current architecture`).
+- **The controller pod enforces `runAsNonRoot`.** An initContainer copying the
+  binary needs a non-root `securityContext` and a pod-level `fsGroup` so the
+  shared `emptyDir` is writable.
 - **Aggregation case flips.** You send `MEAN`, Instana returns `errors.mean.60`.
   Build the lookup key with `strings.ToLower`.
 - **Granularity is part of the series key.** `errors.mean.60`, not `errors.mean`.

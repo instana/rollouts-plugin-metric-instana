@@ -14,14 +14,6 @@ var (
 	commit  = "none"
 )
 
-// handshakeConfig must match the values the Argo Rollouts controller expects
-// for metric provider plugins. Do not change these.
-var handshakeConfig = goPlugin.HandshakeConfig{
-	ProtocolVersion:  1,
-	MagicCookieKey:   "ARGO_ROLLOUTS_RPC_PLUGIN",
-	MagicCookieValue: "metrics",
-}
-
 func main() {
 	// go-plugin reserves stdout for the handshake; logrus writes to stderr.
 	logCtx := log.WithFields(log.Fields{
@@ -33,11 +25,11 @@ func main() {
 	impl := &plugin.RpcPlugin{LogCtx: logCtx}
 
 	pluginMap := map[string]goPlugin.Plugin{
-		"RpcMetricProviderPlugin": &rpc.RpcMetricProviderPlugin{Impl: impl},
+		plugin.PluginKey: &rpc.RpcMetricProviderPlugin{Impl: impl},
 	}
 
 	goPlugin.Serve(&goPlugin.ServeConfig{
-		HandshakeConfig: handshakeConfig,
+		HandshakeConfig: plugin.HandshakeConfig,
 		Plugins:         pluginMap,
 	})
 }
