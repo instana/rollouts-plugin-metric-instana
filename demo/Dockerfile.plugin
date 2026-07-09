@@ -1,0 +1,6 @@
+# Carries the plugin binary into the cluster so an initContainer can copy it
+# into the controller pod. This is also the pattern air-gapped clusters use,
+# since they cannot download from a `location:` URL.
+FROM alpine:3.20
+COPY rollouts-metric-plugin-instana /plugin/rollouts-metric-plugin-instana
+RUN chmod +x /plugin/rollouts-metric-plugin-instana

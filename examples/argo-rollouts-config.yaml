@@ -1,0 +1,17 @@
+# Registers the Instana metric provider plugin with the Argo Rollouts
+# controller. The controller downloads the binary, verifies the sha256, and
+# loads it. Restart the controller after applying.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argo-rollouts-config
+  namespace: argo-rollouts
+data:
+  metricProviderPlugins: |-
+    - name: "instana/metrics"
+      location: "https://github.com/instana/rollouts-metric-plugin/releases/download/v0.1.0/rollouts-metric-plugin-instana_0.1.0_linux_amd64"
+      sha256: "<REPLACE_WITH_CHECKSUM_FROM_SHA256SUMS>"
+
+    # Air-gapped clusters cannot reach github.com. Mount the binary into the
+    # controller pod (initContainer or volume) and point at it instead:
+    #   location: "file:///plugins/rollouts-metric-plugin-instana"

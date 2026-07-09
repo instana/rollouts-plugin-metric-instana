@@ -1,0 +1,37 @@
+# __INSTANA_HOST__ is substituted by hack/demo.sh:
+#   MODE=stub -> http://stub-instana.argo-rollouts.svc.cluster.local:8080
+#   MODE=live -> $INSTANA_HOST
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: instana-canary
+  namespace: demo
+spec:
+  args:
+    - name: pod-template-hash
+  metrics:
+    - name: error-rate
+      interval: 10s
+      count: 3
+      # Instana reports `errors` as a ratio (0..1). 0.05 == 5%.
+      successCondition: result <= 0.05
+      failureLimit: 1
+      provider:
+        plugin:
+          instana/metrics:
+            host: __INSTANA_HOST__
+            apiTokenEnv: INSTANA_API_TOKEN
+            metric: errors
+            aggregation: MEAN
+            granularity: 60
+            timeWindowMs: 300000
+            groupByTag: kubernetes.pod.label
+            groupByTagKey: rollouts-pod-template-hash
+            groupByTagEntity: DESTINATION
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                entity: DESTINATION
+                value: "{{args.pod-template-hash}}"

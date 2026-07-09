@@ -1,0 +1,126 @@
+# A stand-in for Instana, so the demo can prove the Argo control loop
+# (canary -> analysis -> auto rollback) without needing an agent, an
+# instrumented app, or a tenant.
+#
+# It implements exactly the one endpoint the plugin calls, with the response
+# shape verified against a real tenant, and echoes back the group the plugin
+# filtered on so `selectGroup` matches. POST /admin/error-rate flips it between
+# healthy and degraded mid-demo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stub-instana
+  namespace: argo-rollouts
+data:
+  stub.py: |
+    import json, os, time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    CALL_GROUPS = "/api/application-monitoring/analyze/call-groups"
+    PORT = int(os.environ.get("PORT", "8080"))
+    STATE = {
+        "rate": float(os.environ.get("ERROR_RATE", "0.01")),
+        "latency": float(os.environ.get("LATENCY_P90", "50")),
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def _json(self, code, obj):
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt, *args):
+            print("stub-instana: " + (fmt % args), flush=True)
+
+        def do_GET(self):
+            if self.path == "/healthz":
+                return self._json(200, {"ok": True, **STATE})
+            return self._json(404, {"error": "not found"})
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                body = json.loads(raw or b"{}")
+            except Exception:
+                body = {}
+
+            if self.path == "/admin/error-rate":
+                if "rate" in body:
+                    STATE["rate"] = float(body["rate"])
+                if "latency" in body:
+                    STATE["latency"] = float(body["latency"])
+                print("stub-instana: STATE -> %s" % STATE, flush=True)
+                return self._json(200, STATE)
+
+            if self.path != CALL_GROUPS:
+                return self._json(404, {"error": "not found"})
+
+            if not (self.headers.get("Authorization") or "").startswith("apiToken "):
+                return self._json(401, {"error": "unauthorized"})
+
+            # Echo back whichever group the plugin scoped to.
+            group = None
+            for el in (body.get("tagFilterExpression") or {}).get("elements", []):
+                if el.get("value"):
+                    group = el["value"]
+            if not group:
+                group = "unfiltered"
+
+            spec = (body.get("metrics") or [{}])[0]
+            metric = spec.get("metric", "errors")
+            agg = (spec.get("aggregation") or "MEAN").lower()
+            gran = spec.get("granularity", 60)
+            key = "%s.%s.%s" % (metric, agg, gran)
+            value = STATE["latency"] if metric == "latency" else STATE["rate"]
+
+            print("stub-instana: %s group=%s -> %s=%s" % (CALL_GROUPS, group, key, value), flush=True)
+            return self._json(200, {
+                "totalHits": 1,
+                "items": [{"name": group, "metrics": {key: [[int(time.time() * 1000), value]]}}],
+            })
+
+    print("stub-instana: listening on :%d" % PORT, flush=True)
+    HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stub-instana
+  namespace: argo-rollouts
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: stub-instana }
+  template:
+    metadata:
+      labels: { app: stub-instana }
+    spec:
+      containers:
+        - name: stub
+          image: python:3.12-alpine
+          command: ["python", "/app/stub.py"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - { name: app, mountPath: /app }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 2
+      volumes:
+        - name: app
+          configMap: { name: stub-instana }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stub-instana
+  namespace: argo-rollouts
+spec:
+  selector: { app: stub-instana }
+  ports:
+    - port: 8080
+      targetPort: 8080

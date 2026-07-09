@@ -1,0 +1,37 @@
+# Example canary Rollout that runs the Instana analysis at each step.
+# valueFrom.podTemplateHashValue: Latest passes the canary ReplicaSet's
+# pod-template-hash into the AnalysisTemplate automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: demo-app
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      containers:
+        - name: demo-app
+          image: demo-app:latest
+          ports:
+            - containerPort: 8080
+  strategy:
+    canary:
+      steps:
+        - setWeight: 20
+        - pause: { duration: 2m }
+        - analysis:
+            templates:
+              - templateName: instana-error-rate
+            args:
+              - name: pod-template-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+        - setWeight: 60
+        - pause: { duration: 2m }
+        - setWeight: 100
