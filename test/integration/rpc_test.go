@@ -71,8 +71,13 @@ func stubInstana(t *testing.T, errorRate float64) *httptest.Server {
 func dispense(t *testing.T) (rpc.MetricProviderPlugin, func()) {
 	t.Helper()
 
+	// go-plugin appends os.Environ() to cmd.Env when it starts the subprocess,
+	// so anything inherited from the caller's shell overrides cmd.Env. Set the
+	// token on this process instead, or a real INSTANA_API_TOKEN exported in a
+	// developer's profile silently leaks into the test.
+	t.Setenv("INSTANA_API_TOKEN", "integration-token")
+
 	cmd := exec.Command(binaryPath(t))
-	cmd.Env = append(os.Environ(), "INSTANA_API_TOKEN=integration-token")
 
 	client := goPlugin.NewClient(&goPlugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,

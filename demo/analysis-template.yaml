@@ -25,6 +25,8 @@ spec:
             aggregation: MEAN
             granularity: 60
             timeWindowMs: 300000
+            # Scope to the namespace: a pod-template-hash is not globally unique.
+            namespace: demo
             groupByTag: kubernetes.pod.label
             groupByTagKey: rollouts-pod-template-hash
             groupByTagEntity: DESTINATION

@@ -160,7 +160,7 @@ func (c *instanaClient) buildRequest(cfg *Config) callGroupsRequest {
 			WindowSize: cfg.TimeWindowMs,
 		},
 		Pagination:          pagination{Page: 1, PageSize: cfg.PageSize},
-		TagFilterExpression: buildTagFilterExpression(cfg.TagFilters),
+		TagFilterExpression: buildTagFilterExpression(effectiveTagFilters(cfg)),
 	}
 }
 

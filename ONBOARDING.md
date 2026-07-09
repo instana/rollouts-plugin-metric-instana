@@ -44,6 +44,7 @@ is what separates canary traffic from stable traffic.
 | D7 | Publish a **raw executable**, not a zip | The Argo controller downloads the file at `location`, verifies its sha256, and execs it. `archives.formats: [binary]`. |
 | D8 | API token via an **env var on the controller** for v1 | Simplest thing that works. A Secret + RBAC read is the follow-up if we need per-namespace tokens. |
 | D9 | Blue-green shows the **active** variant only | Preview pods receive no production traffic, so a preview error rate is noise. |
+| D10 | Always scope the query by **cluster and namespace** | A pod-template-hash is a short hash and is not globally unique. Without scoping, a same-hash workload elsewhere blends into the canary gate. The R321 UI scopes its equivalent query the same way. |
 
 ---
 
@@ -70,18 +71,33 @@ Nothing below is inferred from documentation.
 | A degraded canary is **automatically rolled back** on a real cluster | `AnalysisRun` → `Failed` (`value=0.9`), Rollout → `Degraded`, canary scaled to 0 |
 | A healthy canary is **promoted** (so it is not just always failing) | `AnalysisRun` → `Successful` (`value=0.01`), Rollout → `Healthy`, image advanced |
 | `goreleaser` config builds | `goreleaser build --snapshot` succeeds and runs the `go test` hook |
+| **Hash-shaped pod labels reach spans** | grouping by `kubernetes.pod.label[pod-template-hash]` on a live **R320** cluster returned real ReplicaSet hashes `['56bffbdc86','8584d6bbc9']` |
+| Nothing about the label is release-gated | `rollouts-pod-template-hash` has **zero** references in `instana/backend` and `instana/sensors`; `kubernetes.pod.label` appears in ClickHouse call-table migrations since **release 276**; no label allowlist exists |
+| `kubernetes.label` and `kubernetes.pod.label` are equivalent for pod labels | both returned the identical groups for `app` and for `pod-template-hash` |
+| Cluster and namespace tags filter correctly | `namespace=shop-demo` → 2 groups, `ZZZ-bogus` → 0; `cluster=k-llama` → 2 groups, `ZZZ-bogus` → 0 |
+| R321's UI uses the same endpoint we do | `useRolloutServiceId.ts` calls `getCallGroups` with a `rollouts-pod-template-hash` tag filter |
+
+### The former blocker, resolved
+
+"Does `rollouts-pod-template-hash` reach Instana spans?" — **yes, by construction.**
+It is an ordinary pod label. The stock `pod-template-hash` that Kubernetes puts
+on every Deployment-managed pod is demonstrably groupable and filterable on a
+live R320 cluster, and there is no allowlist that could treat the Argo label
+differently. It returned `totalHits: 0` on that tenant only because the cluster
+runs no Argo Rollouts workloads.
+
+This is **not** an R321 feature. R321 added UI hooks that *consume* the label;
+the pod-label-to-span propagation is generic and long-standing.
 
 ### What is NOT yet proven
 
-1. **That `rollouts-pod-template-hash` actually reaches Instana spans.** The tag
-   *key* is accepted (`200`, `totalHits: 0`), but the demo tenant runs no Argo
-   Rollouts workloads, so it has never been observed with a real value. The
-   end-to-end demo proves Argo passes the hash and the plugin filters on it —
-   what remains is confirming Instana *stores* it on spans. **This is the last
-   open risk.** Everything else is settled.
+1. A real Argo Rollouts canary observed end to end on a cluster reporting to
+   Instana. The mechanism is proven by the identical stock `pod-template-hash`;
+   what is left is a confirmation run, not a risk.
 2. `goreleaser check` needs a git remote to validate the `release` section; only
    `goreleaser build` has run. `formats: [binary]` needs goreleaser ≥ v2.5.
 3. The GPG signing step has never run (needs `GPG_FINGERPRINT` in CI).
+4. Blue-green (D9) is neither implemented nor tested.
 
 ---
 
@@ -173,6 +189,16 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
   name — which the original design docs assumed — does not exist.
 - **`kubernetes.deployment.name` will not work.** Rollouts bypass the Deployment
   entity entirely (pod → ReplicaSet → Rollout). Use the pod label.
+- **A pod-template-hash is not globally unique.** It is a short hash. Always set
+  `clusterName` and `namespace`, or the gate can silently include traffic from a
+  same-hash workload in another namespace or cluster. See D10.
+- **go-plugin appends `os.Environ()` after `cmd.Env`.** You cannot override an
+  inherited variable through `cmd.Env` when launching a plugin — the inherited
+  value wins. A developer with a real `INSTANA_API_TOKEN` exported would
+  silently have had it used by the integration test. The test now calls
+  `t.Setenv` on the parent process instead.
+- **`kubernetes.label` and `kubernetes.pod.label` both work** for pod labels;
+  R321 uses one in each of two hooks. We use the pod-specific name.
 - **Empty ≠ zero.** See D4. Guarded by
   `TestReduceToScalar_EmptyResultIsError` and a live test.
 - **Ambiguity ≠ pick the first.** If several groups come back and no

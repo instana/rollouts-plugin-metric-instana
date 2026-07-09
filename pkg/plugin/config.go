@@ -35,6 +35,13 @@ type Config struct {
 	// (e.g. the canary hash when both canary and stable are reporting).
 	SelectGroup string `json:"selectGroup,omitempty"`
 
+	// ClusterName and Namespace scope the query. A pod-template-hash is a short
+	// hash and is not globally unique, so without these a canary gate can blend
+	// traffic from a same-named workload in another cluster or namespace. The
+	// R321 UI scopes its equivalent query the same way.
+	ClusterName string `json:"clusterName,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+
 	// APITokenEnv is the env var on the rollouts controller holding the API
 	// token. Defaults to INSTANA_API_TOKEN.
 	APITokenEnv string `json:"apiTokenEnv,omitempty"`
@@ -58,15 +65,44 @@ type TagFilter struct {
 	Key string `json:"key,omitempty"`
 }
 
+// Instana tag names. Pod labels are exposed as KEY_VALUE_PAIR tags, so a filter
+// on them carries both a Key and a Value.
+//
+// Verified on a live tenant: kubernetes.label and kubernetes.pod.label return
+// identical results for pod labels. The R321 UI happens to use both; we use the
+// pod-specific one.
+const (
+	PodLabelTag    = "kubernetes.pod.label"
+	ClusterNameTag = "kubernetes.cluster.name"
+	NamespaceTag   = "kubernetes.namespace.name"
+)
+
 const (
 	defaultAPITokenEnv      = "INSTANA_API_TOKEN"
-	defaultGroupByTag       = "kubernetes.pod.label"
+	defaultGroupByTag       = PodLabelTag
 	defaultGroupByTagKey    = "rollouts-pod-template-hash"
 	defaultGroupByTagEntity = "DESTINATION"
 	defaultGranularity      = 60
 	defaultTimeWindowMs     = 60000
 	defaultPageSize         = 20
 )
+
+// effectiveTagFilters prepends the cluster and namespace scoping filters, if
+// configured, to whatever the template supplied.
+func effectiveTagFilters(cfg *Config) []TagFilter {
+	filters := make([]TagFilter, 0, len(cfg.TagFilters)+2)
+	if cfg.ClusterName != "" {
+		filters = append(filters, TagFilter{
+			Name: ClusterNameTag, Operator: "EQUALS", Entity: "DESTINATION", Value: cfg.ClusterName,
+		})
+	}
+	if cfg.Namespace != "" {
+		filters = append(filters, TagFilter{
+			Name: NamespaceTag, Operator: "EQUALS", Entity: "DESTINATION", Value: cfg.Namespace,
+		})
+	}
+	return append(filters, cfg.TagFilters...)
+}
 
 func parseConfig(metric v1alpha1.Metric) (*Config, error) {
 	if metric.Provider.Plugin == nil {

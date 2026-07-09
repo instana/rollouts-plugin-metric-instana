@@ -62,11 +62,20 @@ data:
             if not (self.headers.get("Authorization") or "").startswith("apiToken "):
                 return self._json(401, {"error": "unauthorized"})
 
-            # Echo back whichever group the plugin scoped to.
+            # Echo back the group the plugin scoped to. Match the filter whose
+            # key is the grouping key (the pod-template-hash), not merely the
+            # last filter with a value -- cluster/namespace filters also have
+            # values and would otherwise win.
+            elements = (body.get("tagFilterExpression") or {}).get("elements", [])
+            group_key = (body.get("group") or {}).get("groupbyTagSecondLevelKey")
             group = None
-            for el in (body.get("tagFilterExpression") or {}).get("elements", []):
-                if el.get("value"):
-                    group = el["value"]
+            for el in elements:
+                if group_key and el.get("key") == group_key:
+                    group = el.get("value")
+            if not group:
+                for el in elements:
+                    if el.get("value"):
+                        group = el["value"]
             if not group:
                 group = "unfiltered"
 
