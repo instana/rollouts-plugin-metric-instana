@@ -1,9 +1,16 @@
-name: release
+name: Release (Disabled - Using CI/CD Pipeline)
 
+# Releases are handled by the CI/CD pipeline defined in .pipeline-config.yaml,
+# which runs goreleaser with the GPG signing key. This workflow is kept for
+# manual smoke-testing only and must not trigger on tag pushes, or both paths
+# would publish the same tag.
+#
+# Same arrangement as instana/terraform-provider-instana.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - 'v*'
 
 permissions:
   contents: write

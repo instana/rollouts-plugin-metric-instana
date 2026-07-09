@@ -32,7 +32,7 @@ RPC.
 |------|---------|
 | `main.go` | go-plugin handshake + serve |
 | `pkg/plugin/plugin.go` | metric-provider interface implementation |
-| `pkg/plugin/config.go` | parse `provider.plugin["argoproj-labs/instana"]` |
+| `pkg/plugin/config.go` | parse `provider.plugin["instana/metrics"]` |
 | `pkg/plugin/instana.go` | Instana metrics API client + scalar reduction |
 | `pkg/plugin/plugin_test.go` | unit tests against a mocked Instana API |
 | `examples/` | ConfigMap, AnalysisTemplate, Rollout |
@@ -52,20 +52,26 @@ make checksums # sha256 for the controller ConfigMap
 the same script, so a green local run means a green build. CodeQL and Go
 dependency submission run as separate workflows.
 
-> The repo is staged on github.ibm.com while access to the public
-> `argoproj-labs` org is arranged. GitHub Actions is disabled there, so the
-> workflows are dormant for now — use `make verify` locally. The Go module path
-> already points at the public home, so it will not `go get` from Enterprise.
+> The repo is staged on github.ibm.com while access to the public `instana` org
+> is arranged. GitHub Actions is disabled on Enterprise, so the workflows are
+> dormant for now — use `make verify` locally. The Go module path already points
+> at the public home (`github.com/instana/…`), so it will not `go get` from
+> Enterprise until the move.
 
 ## Release
 
-Releases are cut by goreleaser (`.goreleaser.yml`) on a `v*` tag, mirroring the
-pipeline used by `instana/terraform-provider-instana`: cross-compiled binaries,
-a `SHA256SUMS` file, and a detached GPG signature over it.
+Releases mirror `instana/terraform-provider-instana`, which publishes the same
+category of artifact (a Go plugin binary consumed by a third-party OSS tool).
 
-One deliberate difference from that provider: it publishes **zips**, but the
-Argo Rollouts controller downloads a **raw executable** and verifies its sha256,
-so `archives.formats` is `[binary]` here.
+`.pipeline-config.yaml` (IBM Continuous Delivery) owns the release: it runs
+goreleaser (`.goreleaser.yml`) on a `v*` tag to cross-compile, checksum, and
+GPG-sign. `.github/workflows/release.yml` is deliberately **disabled**
+(`workflow_dispatch` only) so the two paths cannot both publish — exactly how
+the Terraform provider does it.
+
+One deliberate difference from that provider: it publishes **zips**, because the
+Terraform Registry expects them. The Argo Rollouts controller instead downloads a
+**raw executable** and execs it, so `archives.formats` is `[binary]` here.
 
 Assets published per tag:
 
@@ -77,7 +83,9 @@ rollouts-plugin-metric-instana_<version>_SHA256SUMS
 rollouts-plugin-metric-instana_<version>_SHA256SUMS.sig
 ```
 
-CI needs two secrets: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`.
+The pipeline needs `GHP_PAT`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`,
+`GPG_FINGERPRINT`, `GIT_USER_NAME`, `GIT_USER_EMAIL` and `TAG` — the same
+environment properties the Terraform provider already uses.
 
 The controller verifies **sha256 only** — take the value from `SHA256SUMS`. The
 GPG signature is defence in depth, not something Argo checks.
@@ -102,30 +110,41 @@ GPG signature is defence in depth, not something Argo checks.
 ## Use
 
 Apply an `AnalysisTemplate` (`examples/analysis-template.yaml`) referencing
-`provider.plugin: argoproj-labs/instana`, and wire it into a Rollout step
+`provider.plugin: instana/metrics`, and wire it into a Rollout step
 (`examples/rollout.yaml`). Use `valueFrom.podTemplateHashValue: Latest` to scope
 the query to the canary variant.
 
 ### Config fields
 
+Supplied under `metric.provider.plugin["instana/metrics"]`.
+
 | Field | Required | Default | Notes |
 |-------|----------|---------|-------|
 | `host` | yes | — | Instana tenant base URL |
 | `metric` | yes | — | Instana metric id (`errors`, `latency`, `calls`, …) |
-| `aggregation` | no | `MEAN` | `MEAN`, `SUM`, `P90`, … |
+| `aggregation` | no | `MEAN` | `MEAN`, `SUM`, `P90`, … Instana lower-cases it in the series key |
+| `granularity` | no | `60` | seconds; also part of the series key (`errors.mean.60`) |
 | `timeWindowMs` | no | `60000` | look-back window |
-| `applicationId` | no | — | scope to an Instana application |
+| `clusterName` | no | — | scope the query; a pod-template-hash is **not** globally unique |
+| `namespace` | no | — | scope the query, as above |
+| `groupByTag` | no | `kubernetes.pod.label` | tag to group call groups by |
+| `groupByTagKey` | no | `rollouts-pod-template-hash` | label key for `KEY_VALUE_PAIR` tags |
+| `groupByTagEntity` | no | `DESTINATION` | |
+| `selectGroup` | no | — | pick one group by name when canary and stable both report |
+| `tagFilters` | no | — | extra scoping; `kubernetes.pod.label` needs `key` **and** `value` |
 | `apiTokenEnv` | no | `INSTANA_API_TOKEN` | controller env var holding the token |
-| `tagFilters` | no | — | scope the query (e.g. pod-template-hash) |
+| `pageSize` | no | `20` | must be ≥ 1 |
 | `insecure` | no | `false` | skip TLS verify (test only) |
 
 ## Open decisions before shipping
 
-1. **Instana API contract** — confirm `POST /api/application-monitoring/metrics`
-   (request/response shape in `instana.go`) is the right stable endpoint for the
-   target release and that it supports pod-label tag filtering at the needed
-   granularity. Adjust `metricsRequest` / `metricsResponse` accordingly.
-2. **Secret handling** — env var (current) vs in-cluster Secret read with RBAC.
-3. **Repo / ownership** — host under `argoproj-labs` (discoverability, parity
-   feel) or the `instana` org; assign a maintenance owner.
-4. **Auth scope** — least-privilege, read-only metrics API token.
+1. **Support model** — community OSS artifact vs supported product artifact.
+2. **Secret handling** — controller env var (current) vs in-cluster Secret read
+   with RBAC, if per-namespace tokens are ever needed.
+3. **Auth scope** — least-privilege, read-only metrics API token.
+4. **Metric coverage** — `errors` and `latency` today; HTTP status codes are the
+   next ask.
+
+The Instana API contract is settled: `POST /api/application-monitoring/analyze/call-groups`,
+verified against a live tenant. Do **not** use `/metrics/services` — it accepts
+`tagFilterExpression`, returns 200, and silently ignores it.

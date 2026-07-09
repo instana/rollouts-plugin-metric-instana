@@ -5,7 +5,7 @@ import (
 	goPlugin "github.com/hashicorp/go-plugin"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/argoproj-labs/rollouts-plugin-metric-instana/pkg/plugin"
+	"github.com/instana/rollouts-plugin-metric-instana/pkg/plugin"
 )
 
 // Populated at build time via -ldflags -X.

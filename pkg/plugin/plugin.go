@@ -13,7 +13,7 @@ const ProviderType = "Instana"
 
 // PluginName is the key used both in the argo-rollouts-config ConfigMap entry
 // and as the map key under metric.provider.plugin in the AnalysisTemplate.
-const PluginName = "argoproj-labs/instana"
+const PluginName = "instana/metrics"
 
 // RpcPlugin implements the Argo Rollouts MetricProviderPlugin interface.
 type RpcPlugin struct {

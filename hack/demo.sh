@@ -143,7 +143,7 @@ metadata:
   namespace: argo-rollouts
 data:
   metricProviderPlugins: |-
-    - name: "argoproj-labs/instana"
+    - name: "instana/metrics"
       location: "file:///plugins/${BIN}"
 YAML
 

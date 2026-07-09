@@ -35,9 +35,13 @@ step "build"
 CGO_ENABLED=0 go build -o dist/rollouts-metric-plugin-instana . || bad "build failed"
 
 step "integration tests (real binary over go-plugin RPC)"
+# -count=1 disables the test cache. This test execs dist/<binary>, which is not
+# an input to the cache key, so a cached "ok" could otherwise hide a broken
+# binary.
+#
 # Scrub INSTANA_API_TOKEN: go-plugin appends os.Environ() after cmd.Env, so a
 # developer's real token would otherwise reach the stub.
-env -u INSTANA_API_TOKEN go test -tags integration ./test/integration/ || bad "integration tests failed"
+env -u INSTANA_API_TOKEN go test -count=1 -tags integration ./test/integration/ || bad "integration tests failed"
 
 step "govulncheck"
 if command -v govulncheck >/dev/null 2>&1; then

@@ -23,7 +23,7 @@ spec:
       failureLimit: 2
       provider:
         plugin:
-          argoproj-labs/instana:
+          instana/metrics:
             host: https://acme-prod.instana.io
             apiTokenEnv: INSTANA_API_TOKEN
             metric: errors
@@ -54,7 +54,7 @@ spec:
       failureLimit: 2
       provider:
         plugin:
-          argoproj-labs/instana:
+          instana/metrics:
             host: https://acme-prod.instana.io
             apiTokenEnv: INSTANA_API_TOKEN
             metric: latency

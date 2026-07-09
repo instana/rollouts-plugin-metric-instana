@@ -8,8 +8,8 @@ metadata:
   namespace: argo-rollouts
 data:
   metricProviderPlugins: |-
-    - name: "argoproj-labs/instana"
-      location: "https://github.com/argoproj-labs/rollouts-plugin-metric-instana/releases/download/v0.1.0/rollouts-plugin-metric-instana_0.1.0_linux_amd64"
+    - name: "instana/metrics"
+      location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/v0.1.0/rollouts-plugin-metric-instana_0.1.0_linux_amd64"
       sha256: "<REPLACE_WITH_CHECKSUM_FROM_SHA256SUMS>"
 
     # Air-gapped clusters cannot reach github.com. Mount the binary into the

@@ -42,8 +42,8 @@ and that is what separates canary traffic from stable traffic.
 | D3 | Scope the canary with the `kubernetes.pod.label` tag, keyed on `rollouts-pod-template-hash` | It is a `KEY_VALUE_PAIR` tag, so the filter needs a separate `key` field. Argo injects the canary hash automatically via `valueFrom.podTemplateHashValue: Latest`. |
 | D4 | **An empty result is an error, never `0`** | An error-rate gate that returns `0` for "no data" would promote a canary that is emitting no telemetry at all — the exact failure it exists to prevent. |
 | D5 | Delegate condition evaluation to Argo's own `evaluate.EvaluateResult` | `successCondition` / `failureCondition` semantics stay identical to every other provider. Don't reinvent them. |
-| D6 | Distribute from **its own repo**, `argoproj-labs/rollouts-plugin-metric-instana`, via goreleaser | The name follows the ecosystem convention (`rollouts-plugin-metric-{ai,opensearch,honeycomb,…}`) and the org is where every other Argo Rollouts metric plugin lives, which is the "out of the box, like Datadog" discoverability the customer asked for. Release mechanics copy `instana/terraform-provider-instana`: cross-compiled binaries + `SHA256SUMS` + GPG signature, Apache-2.0. **Not** `instana/content` — that is the docs repo, its releases carry documentation PDFs, and its tags track doc releases. |
-| D11 | CI runs on **GitHub Actions**, not IBM Continuous Delivery or Concourse | `.pipeline-config.yaml` (IBM CD) and Concourse pipelines are bound to github.ibm.com, internal Artifactory credentials, and internal GH status reporting. None of that exists for an `argoproj-labs` repo. `ci/verify.sh` is the shared entrypoint so local, hook, and CI runs are identical — the one idea worth taking from the internal repos. |
+| D6 | Distribute from **its own repo**, `github.com/instana/rollouts-plugin-metric-instana` (public), via goreleaser | The repo name follows the Argo ecosystem convention (`rollouts-plugin-metric-{ai,opensearch,honeycomb,…}`) so it is discoverable from the Argo side, while the org matches `instana/terraform-provider-instana` — the closest precedent, and the one whose release path already runs in production. **Not** `instana/content` — that is the docs repo, its releases carry documentation PDFs, and its tags track doc releases. Access to the public `instana` org is still being arranged; the repo is staged on github.ibm.com meanwhile. |
+| D11 | **`.pipeline-config.yaml` (IBM Continuous Delivery) owns releases**; GitHub Actions runs build/test/scan | Copies `instana/terraform-provider-instana` exactly: its `.github/workflows/release.yml` is disabled (`workflow_dispatch` only) so IBM CD is the single publisher and the two paths cannot both push a tag. Concourse (used by internal services) does not apply — it is bound to github.ibm.com and internal Artifactory. `ci/verify.sh` is the shared entrypoint so local, hook, and CI runs are identical. |
 | D7 | Publish a **raw executable**, not a zip | The Argo controller downloads the file at `location`, verifies its sha256, and execs it. `archives.formats: [binary]`. |
 | D8 | API token via an **env var on the controller** for v1 | Simplest thing that works. A Secret + RBAC read is the follow-up if we need per-namespace tokens. |
 | D9 | Blue-green shows the **active** variant only | Preview pods receive no production traffic, so a preview error rate is noise. |
@@ -103,11 +103,12 @@ no Argo Rollouts workloads.
 2. The GPG signing step has never run (needs `GPG_FINGERPRINT`, `GPG_PRIVATE_KEY`
    and `GPG_PASSPHRASE` in CI). `goreleaser check` and `goreleaser build` both
    pass. `formats: [binary]` needs goreleaser ≥ v2.5.
-3. **No CI has ever executed.** The repo currently lives on github.ibm.com with
-   GitHub Actions disabled, so the workflows are registered but dormant. They
-   also lean on github.com features (CodeQL, dependency submission, marketplace
-   actions) that an Enterprise instance may not resolve. They are written for
-   the eventual public `argoproj-labs` home. Until then, run `make verify`.
+3. **No CI has ever executed.** The repo is staged on github.ibm.com with GitHub
+   Actions disabled, so the workflows are registered but dormant. They also lean
+   on github.com features (CodeQL, dependency submission, marketplace actions)
+   that an Enterprise instance may not resolve. They are written for the public
+   `instana` org, where access is still being arranged. Until then, `make verify`
+   is the gate. `.pipeline-config.yaml` has likewise never run.
 4. Blue-green (D9) is neither implemented nor tested.
 5. No CI matrix across Argo Rollouts versions. We build against `v1.9.0`, which
    is the controller version the demo runs, and the handshake cookie is pinned

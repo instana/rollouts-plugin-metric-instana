@@ -1,4 +1,4 @@
-module github.com/argoproj-labs/rollouts-plugin-metric-instana
+module github.com/instana/rollouts-plugin-metric-instana
 
 go 1.25.12
 
