@@ -15,19 +15,21 @@ metrics backend during the rollout. Datadog, New Relic, Prometheus and others
 ship native providers for this. **Instana does not.** A customer asked for
 parity.
 
-**This is the opposite direction from what we shipped in R321.** Do not confuse
-them:
+**This is the opposite direction from the rollout visibility feature we already
+shipped.** Do not confuse them:
 
-| | R321 (`INSTA-58207`) | This project (`INSTANA-I-1890`) |
+| | Rollout visibility (`INSTA-58207`) | This project (`INSTANA-I-1890`) |
 |---|---|---|
 | Direction | Argo Rollouts → Instana | Instana → Argo Rollouts |
 | Instana's role | Observer. Renders rollout health in a dashboard. | Metric provider. Argo queries it to decide. |
 | Effect | A human *watches* a rollout | Argo *automatically* promotes or rolls back |
 
-R321 delivers **visibility**. The customer asked for **control**. Visibility is
-not control. R321 does, however, leave behind the one thing that makes this
-tractable: the `rollouts-pod-template-hash` pod label reaching APM spans, which
-is what separates canary traffic from stable traffic.
+The visibility feature delivers exactly that: **visibility**. The customer asked
+for **control**. Visibility is not control.
+
+What makes this project tractable is separate and older: Instana attaches a
+pod's labels to its APM spans, so `rollouts-pod-template-hash` is queryable —
+and that is what separates canary traffic from stable traffic.
 
 ---
 
@@ -44,7 +46,7 @@ is what separates canary traffic from stable traffic.
 | D7 | Publish a **raw executable**, not a zip | The Argo controller downloads the file at `location`, verifies its sha256, and execs it. `archives.formats: [binary]`. |
 | D8 | API token via an **env var on the controller** for v1 | Simplest thing that works. A Secret + RBAC read is the follow-up if we need per-namespace tokens. |
 | D9 | Blue-green shows the **active** variant only | Preview pods receive no production traffic, so a preview error rate is noise. |
-| D10 | Always scope the query by **cluster and namespace** | A pod-template-hash is a short hash and is not globally unique. Without scoping, a same-hash workload elsewhere blends into the canary gate. The R321 UI scopes its equivalent query the same way. |
+| D10 | Always scope the query by **cluster and namespace** | A pod-template-hash is a short hash and is not globally unique. Without scoping, a same-hash workload elsewhere blends into the canary gate. Instana's own rollout UI scopes its equivalent query the same way. |
 
 ---
 
@@ -71,23 +73,26 @@ Nothing below is inferred from documentation.
 | A degraded canary is **automatically rolled back** on a real cluster | `AnalysisRun` → `Failed` (`value=0.9`), Rollout → `Degraded`, canary scaled to 0 |
 | A healthy canary is **promoted** (so it is not just always failing) | `AnalysisRun` → `Successful` (`value=0.01`), Rollout → `Healthy`, image advanced |
 | `goreleaser` config builds | `goreleaser build --snapshot` succeeds and runs the `go test` hook |
-| **Hash-shaped pod labels reach spans** | grouping by `kubernetes.pod.label[pod-template-hash]` on a live **R320** cluster returned real ReplicaSet hashes `['56bffbdc86','8584d6bbc9']` |
-| Nothing about the label is release-gated | `rollouts-pod-template-hash` has **zero** references in `instana/backend` and `instana/sensors`; `kubernetes.pod.label` appears in ClickHouse call-table migrations since **release 276**; no label allowlist exists |
+| **Hash-shaped pod labels reach spans** | grouping by `kubernetes.pod.label[pod-template-hash]` on a live cluster returned real ReplicaSet hashes `['56bffbdc86','8584d6bbc9']` |
+| Every pod label reaches spans; there is no allowlist | `KubernetesPodApplicationMonitoringContract` maps `KUBERNETES_POD_LABEL` via `extractFrom(LABELS)` — the pod's whole label map. `rollouts-pod-template-hash` has **zero** references in `instana/backend` and `instana/sensors` |
 | `kubernetes.label` and `kubernetes.pod.label` are equivalent for pod labels | both returned the identical groups for `app` and for `pod-template-hash` |
 | Cluster and namespace tags filter correctly | `namespace=shop-demo` → 2 groups, `ZZZ-bogus` → 0; `cluster=k-llama` → 2 groups, `ZZZ-bogus` → 0 |
-| R321's UI uses the same endpoint we do | `useRolloutServiceId.ts` calls `getCallGroups` with a `rollouts-pod-template-hash` tag filter |
+| Instana's own rollout UI uses the same endpoint we do | `useRolloutServiceId.ts` calls `getCallGroups` with a `rollouts-pod-template-hash` tag filter |
 
 ### The former blocker, resolved
 
 "Does `rollouts-pod-template-hash` reach Instana spans?" — **yes, by construction.**
-It is an ordinary pod label. The stock `pod-template-hash` that Kubernetes puts
-on every Deployment-managed pod is demonstrably groupable and filterable on a
-live R320 cluster, and there is no allowlist that could treat the Argo label
-differently. It returned `totalHits: 0` on that tenant only because the cluster
-runs no Argo Rollouts workloads.
 
-This is **not** an R321 feature. R321 added UI hooks that *consume* the label;
-the pod-label-to-span propagation is generic and long-standing.
+It is an ordinary pod label, and Instana attaches a pod's entire label map to its
+spans: `KubernetesPodApplicationMonitoringContract` registers
+`KUBERNETES_POD_LABEL` with `extractFrom(LABELS)`. There is no allowlist, and
+nothing anywhere special-cases the Argo label. Empirically, the stock
+`pod-template-hash` that Kubernetes puts on every Deployment-managed pod is
+groupable and filterable on a live cluster.
+
+Nothing here depends on a particular Instana release. `totalHits: 0` for
+`rollouts-pod-template-hash` on the test tenant means only that the cluster runs
+no Argo Rollouts workloads.
 
 ### What is NOT yet proven
 
@@ -198,7 +203,8 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
   silently have had it used by the integration test. The test now calls
   `t.Setenv` on the parent process instead.
 - **`kubernetes.label` and `kubernetes.pod.label` both work** for pod labels;
-  R321 uses one in each of two hooks. We use the pod-specific name.
+  Instana's own rollout UI uses one in each of two hooks. We use the
+  pod-specific name.
 - **Empty ≠ zero.** See D4. Guarded by
   `TestReduceToScalar_EmptyResultIsError` and a live test.
 - **Ambiguity ≠ pick the first.** If several groups come back and no
@@ -224,10 +230,10 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
 
 ## 7. Open questions / next steps
 
-1. **Confirm `rollouts-pod-template-hash` on spans.** Deploy Argo Rollouts +
-   an instrumented app on a cluster reporting to a tenant, start a canary, then
-   `./hack/probe-instana.sh rollouts-pod-template-hash <hash>`. This is the
-   remaining gate for a 323 preview.
+1. **Confirmation run against a real canary.** Deploy Argo Rollouts + an
+   instrumented app on a cluster reporting to a tenant, start a canary, then
+   `./hack/probe-instana.sh rollouts-pod-template-hash <hash>`. The mechanism is
+   already established (see §3); this is a confirmation, not a gate.
 2. Decide the support model: community OSS artifact vs supported product
    artifact. Apache-2.0 precedent points to community.
 3. Converge with Emil's independent prototype — two plugins exist.

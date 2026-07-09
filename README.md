@@ -6,8 +6,8 @@ based on the result — the same role the built-in Datadog and New Relic
 providers play.
 
 This closes the gap left by the Instana ↔ Argo Rollouts *visibility* feature
-(R321), which only surfaces rollout state in the Instana dashboard and does not
-feed the promotion decision.
+(`INSTA-58207`), which only surfaces rollout state in the Instana dashboard and
+does not feed the promotion decision.
 
 ## How it works
 

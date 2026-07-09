@@ -37,8 +37,7 @@ type Config struct {
 
 	// ClusterName and Namespace scope the query. A pod-template-hash is a short
 	// hash and is not globally unique, so without these a canary gate can blend
-	// traffic from a same-named workload in another cluster or namespace. The
-	// R321 UI scopes its equivalent query the same way.
+	// traffic from a same-named workload in another cluster or namespace.
 	ClusterName string `json:"clusterName,omitempty"`
 	Namespace   string `json:"namespace,omitempty"`
 
@@ -68,9 +67,11 @@ type TagFilter struct {
 // Instana tag names. Pod labels are exposed as KEY_VALUE_PAIR tags, so a filter
 // on them carries both a Key and a Value.
 //
+// Instana attaches the pod's entire label map to spans, so any pod label is
+// queryable — no allowlist, nothing specific to Argo Rollouts.
+//
 // Verified on a live tenant: kubernetes.label and kubernetes.pod.label return
-// identical results for pod labels. The R321 UI happens to use both; we use the
-// pod-specific one.
+// identical results for pod labels. We use the pod-specific one.
 const (
 	PodLabelTag    = "kubernetes.pod.label"
 	ClusterNameTag = "kubernetes.cluster.name"
