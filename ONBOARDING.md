@@ -42,7 +42,8 @@ and that is what separates canary traffic from stable traffic.
 | D3 | Scope the canary with the `kubernetes.pod.label` tag, keyed on `rollouts-pod-template-hash` | It is a `KEY_VALUE_PAIR` tag, so the filter needs a separate `key` field. Argo injects the canary hash automatically via `valueFrom.podTemplateHashValue: Latest`. |
 | D4 | **An empty result is an error, never `0`** | An error-rate gate that returns `0` for "no data" would promote a canary that is emitting no telemetry at all — the exact failure it exists to prevent. |
 | D5 | Delegate condition evaluation to Argo's own `evaluate.EvaluateResult` | `successCondition` / `failureCondition` semantics stay identical to every other provider. Don't reinvent them. |
-| D6 | Distribute from **its own repo**, `instana/rollouts-metric-plugin`, via goreleaser | Precedent exists: `instana/terraform-provider-instana` publishes cross-compiled binaries + `SHA256SUMS` + GPG signature, publicly, Apache-2.0. Same category (a Go plugin binary consumed by a third-party OSS tool). **Not** `instana/content` — that is the docs repo, its releases carry documentation PDFs, and its tags track doc releases. |
+| D6 | Distribute from **its own repo**, `argoproj-labs/rollouts-plugin-metric-instana`, via goreleaser | The name follows the ecosystem convention (`rollouts-plugin-metric-{ai,opensearch,honeycomb,…}`) and the org is where every other Argo Rollouts metric plugin lives, which is the "out of the box, like Datadog" discoverability the customer asked for. Release mechanics copy `instana/terraform-provider-instana`: cross-compiled binaries + `SHA256SUMS` + GPG signature, Apache-2.0. **Not** `instana/content` — that is the docs repo, its releases carry documentation PDFs, and its tags track doc releases. |
+| D11 | CI runs on **GitHub Actions**, not IBM Continuous Delivery or Concourse | `.pipeline-config.yaml` (IBM CD) and Concourse pipelines are bound to github.ibm.com, internal Artifactory credentials, and internal GH status reporting. None of that exists for an `argoproj-labs` repo. `ci/verify.sh` is the shared entrypoint so local, hook, and CI runs are identical — the one idea worth taking from the internal repos. |
 | D7 | Publish a **raw executable**, not a zip | The Argo controller downloads the file at `location`, verifies its sha256, and execs it. `archives.formats: [binary]`. |
 | D8 | API token via an **env var on the controller** for v1 | Simplest thing that works. A Secret + RBAC read is the follow-up if we need per-namespace tokens. |
 | D9 | Blue-green shows the **active** variant only | Preview pods receive no production traffic, so a preview error rate is noise. |
@@ -68,7 +69,7 @@ Nothing below is inferred from documentation.
 | A filter matching nothing errors instead of returning zero | live test: `phase=Error`, `"returned no groups"` |
 | The compiled binary speaks the controller's RPC protocol | integration tests dispense the real binary over go-plugin RPC; `Type()` → `"Instana"` |
 | A degraded canary produces the rollback phase | `phase=Failed` at `value=37.5` against `result <= 5.0` |
-| The real controller loads the plugin from `argo-rollouts-config` | `"Copied plugin from /plugins/... to /home/argo-rollouts/plugin-bin/instana/metrics"` |
+| The real controller loads the plugin from `argo-rollouts-config` | `"Copied plugin from /plugins/... to /home/argo-rollouts/plugin-bin/<plugin-key>"` |
 | Argo injects the canary hash and the plugin scopes to it | stub logged `group=7f9b9574b8`, matching the canary ReplicaSet's `rollouts-pod-template-hash` |
 | A degraded canary is **automatically rolled back** on a real cluster | `AnalysisRun` → `Failed` (`value=0.9`), Rollout → `Degraded`, canary scaled to 0 |
 | A healthy canary is **promoted** (so it is not just always failing) | `AnalysisRun` → `Successful` (`value=0.01`), Rollout → `Healthy`, image advanced |
@@ -103,10 +104,29 @@ no Argo Rollouts workloads.
    `goreleaser build` has run. `formats: [binary]` needs goreleaser ≥ v2.5.
 3. The GPG signing step has never run (needs `GPG_FINGERPRINT` in CI).
 4. Blue-green (D9) is neither implemented nor tested.
+5. No CI matrix across Argo Rollouts versions. We build against `v1.9.0`, which
+   is the controller version the demo runs, and the handshake cookie is pinned
+   by a test — but an older or newer controller is untested.
 
 ---
 
 ## 4. How to run it
+
+### Verify (what CI runs)
+
+```sh
+make hooks    # once: point git at .githooks so pre-commit runs the same checks
+make verify   # == ./ci/verify.sh == what CI runs
+```
+
+`ci/verify.sh` is the single entrypoint: gofmt, `go vet`, unit tests, build,
+integration tests, `govulncheck`, `goreleaser check`. Optional tools are skipped
+with a notice rather than failing, so a fresh clone verifies with only Go
+installed. GitHub Actions calls the same script.
+
+Secret scanning uses a detect-secrets baseline (`.secrets.baseline`), enforced by
+the pre-commit hook. Regenerate with `make secrets-baseline` and audit new
+findings before committing them.
 
 ### Test tiers
 
@@ -156,7 +176,7 @@ the stub.
    (`examples/rollout.yaml`).
 
 Air-gapped clusters cannot reach github.com. Mount the binary and use
-`location: file:///plugins/rollouts-metric-plugin-instana`.
+`location: file:///plugins/rollouts-plugin-metric-instana`.
 
 ---
 

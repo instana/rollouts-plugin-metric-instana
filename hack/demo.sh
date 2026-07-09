@@ -24,8 +24,8 @@ set -euo pipefail
 CLUSTER="${CLUSTER:-argo-instana-demo}"
 CONTEXT="kind-${CLUSTER}"
 MODE="${MODE:-stub}"
-IMAGE="instana/rollouts-metric-plugin:demo"
-BIN="rollouts-metric-plugin-instana"
+IMAGE="rollouts-plugin-metric-instana:demo"
+BIN="rollouts-plugin-metric-instana"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STUB_HOST="http://stub-instana.argo-rollouts.svc.cluster.local:8080"
@@ -143,7 +143,7 @@ metadata:
   namespace: argo-rollouts
 data:
   metricProviderPlugins: |-
-    - name: "instana/metrics"
+    - name: "argoproj-labs/instana"
       location: "file:///plugins/${BIN}"
 YAML
 

@@ -20,7 +20,7 @@ import (
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/instana/rollouts-metric-plugin/pkg/plugin"
+	"github.com/argoproj-labs/rollouts-plugin-metric-instana/pkg/plugin"
 )
 
 func liveMetric(t *testing.T, metric, aggregation, successCondition string) v1alpha1.Metric {
@@ -56,7 +56,7 @@ func liveMetric(t *testing.T, metric, aggregation, successCondition string) v1al
 		Name:             metric,
 		SuccessCondition: successCondition,
 		Provider: v1alpha1.MetricProvider{
-			Plugin: map[string]json.RawMessage{"instana/metrics": raw},
+			Plugin: map[string]json.RawMessage{"argoproj-labs/instana": raw},
 		},
 	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // Config is the per-metric plugin configuration supplied under
-// metric.provider.plugin["instana/metrics"] in an AnalysisTemplate.
+// metric.provider.plugin["argoproj-labs/instana"] in an AnalysisTemplate.
 type Config struct {
 	// Host is the Instana tenant base URL, e.g. https://acme-prod.instana.io
 	Host string `json:"host"`

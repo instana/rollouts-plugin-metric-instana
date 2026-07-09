@@ -1,6 +1,6 @@
 version: 2
 
-project_name: rollouts-metric-plugin-instana
+project_name: rollouts-plugin-metric-instana
 
 before:
   hooks:

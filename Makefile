@@ -1,12 +1,25 @@
-PLUGIN_NAME := rollouts-metric-plugin-instana
+PLUGIN_NAME := rollouts-plugin-metric-instana
 BIN_DIR := dist
 
-.PHONY: all tidy test test-integration build build-all clean
+.PHONY: all tidy verify hooks secrets-baseline test test-integration build build-all clean
 
 all: tidy test build
 
 tidy:
 	go mod tidy
+
+# The single entrypoint CI and the pre-commit hook both run.
+verify:
+	./ci/verify.sh
+
+# Point git at the tracked hooks directory.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "pre-commit hook installed (bypass once with: git commit --no-verify)"
+
+# Regenerate after auditing new findings: detect-secrets scan --baseline .secrets.baseline
+secrets-baseline:
+	detect-secrets scan --exclude-files '^dist/' --exclude-files '^go\.sum$$' > .secrets.baseline
 
 test:
 	go test ./...

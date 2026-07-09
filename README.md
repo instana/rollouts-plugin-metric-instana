@@ -32,20 +32,25 @@ RPC.
 |------|---------|
 | `main.go` | go-plugin handshake + serve |
 | `pkg/plugin/plugin.go` | metric-provider interface implementation |
-| `pkg/plugin/config.go` | parse `provider.plugin["instana/metrics"]` |
+| `pkg/plugin/config.go` | parse `provider.plugin["argoproj-labs/instana"]` |
 | `pkg/plugin/instana.go` | Instana metrics API client + scalar reduction |
 | `pkg/plugin/plugin_test.go` | unit tests against a mocked Instana API |
 | `examples/` | ConfigMap, AnalysisTemplate, Rollout |
 | `manifests/secret.yaml` | API token secret |
 
-## Build
+## Build and verify
 
 ```sh
-make tidy      # resolve module versions (needs network the first time)
-make test
+make hooks     # once: run the same checks on every commit
+make verify    # == ./ci/verify.sh == exactly what CI runs
 make build-all # cross-compile linux amd64/arm64 into dist/
 make checksums # sha256 for the controller ConfigMap
 ```
+
+`ci/verify.sh` runs gofmt, `go vet`, unit tests, a build, the integration tests,
+`govulncheck`, and `goreleaser check`. CI (`.github/workflows/build.yml`) calls
+the same script, so a green local run means a green build. CodeQL and Go
+dependency submission run as separate workflows.
 
 ## Release
 
@@ -60,11 +65,11 @@ so `archives.formats` is `[binary]` here.
 Assets published per tag:
 
 ```
-rollouts-metric-plugin-instana_<version>_linux_amd64
-rollouts-metric-plugin-instana_<version>_linux_arm64
-rollouts-metric-plugin-instana_<version>_darwin_{amd64,arm64}
-rollouts-metric-plugin-instana_<version>_SHA256SUMS
-rollouts-metric-plugin-instana_<version>_SHA256SUMS.sig
+rollouts-plugin-metric-instana_<version>_linux_amd64
+rollouts-plugin-metric-instana_<version>_linux_arm64
+rollouts-plugin-metric-instana_<version>_darwin_{amd64,arm64}
+rollouts-plugin-metric-instana_<version>_SHA256SUMS
+rollouts-plugin-metric-instana_<version>_SHA256SUMS.sig
 ```
 
 CI needs two secrets: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`.
@@ -92,7 +97,7 @@ GPG signature is defence in depth, not something Argo checks.
 ## Use
 
 Apply an `AnalysisTemplate` (`examples/analysis-template.yaml`) referencing
-`provider.plugin: instana/metrics`, and wire it into a Rollout step
+`provider.plugin: argoproj-labs/instana`, and wire it into a Rollout step
 (`examples/rollout.yaml`). Use `valueFrom.podTemplateHashValue: Latest` to scope
 the query to the canary variant.
 

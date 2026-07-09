@@ -2,5 +2,5 @@
 # into the controller pod. This is also the pattern air-gapped clusters use,
 # since they cannot download from a `location:` URL.
 FROM alpine:3.20
-COPY rollouts-metric-plugin-instana /plugin/rollouts-metric-plugin-instana
-RUN chmod +x /plugin/rollouts-metric-plugin-instana
+COPY rollouts-plugin-metric-instana /plugin/rollouts-plugin-metric-instana
+RUN chmod +x /plugin/rollouts-plugin-metric-instana

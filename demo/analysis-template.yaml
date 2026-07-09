@@ -18,7 +18,7 @@ spec:
       failureLimit: 1
       provider:
         plugin:
-          instana/metrics:
+          argoproj-labs/instana:
             host: __INSTANA_HOST__
             apiTokenEnv: INSTANA_API_TOKEN
             metric: errors

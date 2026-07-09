@@ -23,7 +23,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	goPlugin "github.com/hashicorp/go-plugin"
 
-	instanaplugin "github.com/instana/rollouts-metric-plugin/pkg/plugin"
+	instanaplugin "github.com/argoproj-labs/rollouts-plugin-metric-instana/pkg/plugin"
 )
 
 // Read from the package under test so there is exactly one definition of the
@@ -34,7 +34,7 @@ const pluginKey = instanaplugin.PluginKey
 
 func binaryPath(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs("../../dist/rollouts-metric-plugin-instana")
+	path, err := filepath.Abs("../../dist/rollouts-plugin-metric-instana")
 	if err != nil {
 		t.Fatalf("resolve binary path: %v", err)
 	}
@@ -123,7 +123,7 @@ func canaryMetric(t *testing.T, host, successCondition string) v1alpha1.Metric {
 		Name:             "error-rate",
 		SuccessCondition: successCondition,
 		Provider: v1alpha1.MetricProvider{
-			Plugin: map[string]json.RawMessage{"instana/metrics": raw},
+			Plugin: map[string]json.RawMessage{"argoproj-labs/instana": raw},
 		},
 	}
 }
