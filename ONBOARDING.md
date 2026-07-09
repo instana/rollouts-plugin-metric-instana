@@ -100,9 +100,14 @@ no Argo Rollouts workloads.
 1. A real Argo Rollouts canary observed end to end on a cluster reporting to
    Instana. The mechanism is proven by the identical stock `pod-template-hash`;
    what is left is a confirmation run, not a risk.
-2. `goreleaser check` needs a git remote to validate the `release` section; only
-   `goreleaser build` has run. `formats: [binary]` needs goreleaser ≥ v2.5.
-3. The GPG signing step has never run (needs `GPG_FINGERPRINT` in CI).
+2. The GPG signing step has never run (needs `GPG_FINGERPRINT`, `GPG_PRIVATE_KEY`
+   and `GPG_PASSPHRASE` in CI). `goreleaser check` and `goreleaser build` both
+   pass. `formats: [binary]` needs goreleaser ≥ v2.5.
+3. **No CI has ever executed.** The repo currently lives on github.ibm.com with
+   GitHub Actions disabled, so the workflows are registered but dormant. They
+   also lean on github.com features (CodeQL, dependency submission, marketplace
+   actions) that an Enterprise instance may not resolve. They are written for
+   the eventual public `argoproj-labs` home. Until then, run `make verify`.
 4. Blue-green (D9) is neither implemented nor tested.
 5. No CI matrix across Argo Rollouts versions. We build against `v1.9.0`, which
    is the controller version the demo runs, and the handshake cookie is pinned

@@ -52,6 +52,11 @@ make checksums # sha256 for the controller ConfigMap
 the same script, so a green local run means a green build. CodeQL and Go
 dependency submission run as separate workflows.
 
+> The repo is staged on github.ibm.com while access to the public
+> `argoproj-labs` org is arranged. GitHub Actions is disabled there, so the
+> workflows are dormant for now — use `make verify` locally. The Go module path
+> already points at the public home, so it will not `go get` from Enterprise.
+
 ## Release
 
 Releases are cut by goreleaser (`.goreleaser.yml`) on a `v*` tag, mirroring the
