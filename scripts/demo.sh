@@ -3,12 +3,12 @@
 # End-to-end demo: Argo Rollouts asks Instana whether to promote a canary,
 # and rolls back automatically when the canary is unhealthy.
 #
-#   ./hack/demo.sh up      build + install everything, deploy the Rollout
-#   ./hack/demo.sh good    healthy canary  -> analysis passes -> promoted
-#   ./hack/demo.sh bad     degraded canary -> analysis fails  -> AUTO ROLLBACK
-#   ./hack/demo.sh status  watch the rollout
-#   ./hack/demo.sh logs    controller + stub logs
-#   ./hack/demo.sh down    delete the kind cluster
+#   ./scripts/demo.sh up      build + install everything, deploy the Rollout
+#   ./scripts/demo.sh good    healthy canary  -> analysis passes -> promoted
+#   ./scripts/demo.sh bad     degraded canary -> analysis fails  -> AUTO ROLLBACK
+#   ./scripts/demo.sh status  watch the rollout
+#   ./scripts/demo.sh logs    controller + stub logs
+#   ./scripts/demo.sh down    delete the kind cluster
 #
 # MODE=stub (default)  a stub Instana runs in-cluster; deterministic, no agent,
 #                      no instrumentation, no tenant required.
@@ -43,7 +43,7 @@ guard_context() {
   if [[ "$current" != "$CONTEXT" && "${FORCE:-0}" != "1" ]]; then
     die "current context is '${current}', expected '${CONTEXT}'.
      Refusing to touch a cluster this script did not create.
-     Run './hack/demo.sh up' first, or set FORCE=1 if you really mean it."
+     Run './scripts/demo.sh up' first, or set FORCE=1 if you really mean it."
   fi
 }
 
@@ -101,7 +101,7 @@ preflight_live() {
        To run live, use a cluster that already reports to your tenant, and point
        the Rollout at an instrumented app:
 
-         DEMO_IMAGE=<your-instrumented-image> MODE=live ./hack/demo.sh up
+         DEMO_IMAGE=<your-instrumented-image> MODE=live ./scripts/demo.sh up
 
        Use MODE=stub (the default) for a self-contained demo.
 
@@ -224,12 +224,12 @@ PATCH
 
 Ready. Now run:
 
-  ./hack/demo.sh good    # healthy canary -> promoted
-  ./hack/demo.sh bad     # degraded canary -> automatic rollback
+  ./scripts/demo.sh good    # healthy canary -> promoted
+  ./scripts/demo.sh bad     # degraded canary -> automatic rollback
 
 Watch it live in another terminal:
 
-  ./hack/demo.sh status
+  ./scripts/demo.sh status
 
 EOF
 }
@@ -284,8 +284,8 @@ Watch for the rollout to abort. Expect, in order:
   3. error rate 0.9 fails 'result <= 0.05'
   4. AnalysisRun -> Failed, Rollout -> Degraded, canary scaled back to zero
 
-  ./hack/demo.sh status
-  ./hack/demo.sh logs
+  ./scripts/demo.sh status
+  ./scripts/demo.sh logs
 
 EOF
   cmd_get

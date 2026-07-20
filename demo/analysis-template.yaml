@@ -1,4 +1,4 @@
-# __INSTANA_HOST__ is substituted by hack/demo.sh:
+# __INSTANA_HOST__ is substituted by scripts/demo.sh:
 #   MODE=stub -> http://stub-instana.argo-rollouts.svc.cluster.local:8080
 #   MODE=live -> $INSTANA_HOST
 apiVersion: argoproj.io/v1alpha1

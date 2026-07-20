@@ -154,18 +154,18 @@ go test -tags live ./test/live/ -v
 Probe the tenant directly (read-only, no Go needed):
 
 ```sh
-./hack/probe-instana.sh app order-service
+./scripts/probe-instana.sh app order-service
 # once a Rollout exists:
-./hack/probe-instana.sh rollouts-pod-template-hash <canary-hash>
+./scripts/probe-instana.sh rollouts-pod-template-hash <canary-hash>
 ```
 
 ### Full demo (kind cluster, auto-rollback)
 
 ```sh
-./hack/demo.sh up      # kind + Argo Rollouts + plugin + stub Instana + Rollout
-./hack/demo.sh good    # healthy canary -> analysis passes -> promoted
-./hack/demo.sh bad     # degraded canary -> analysis fails -> AUTO ROLLBACK
-./hack/demo.sh down
+./scripts/demo.sh up      # kind + Argo Rollouts + plugin + stub Instana + Rollout
+./scripts/demo.sh good    # healthy canary -> analysis passes -> promoted
+./scripts/demo.sh bad     # degraded canary -> analysis fails -> AUTO ROLLBACK
+./scripts/demo.sh down
 ```
 
 See `demo/README.md`. `MODE=live` points the plugin at a real tenant instead of
@@ -258,7 +258,7 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
 
 1. **Confirmation run against a real canary.** Deploy Argo Rollouts + an
    instrumented app on a cluster reporting to a tenant, start a canary, then
-   `./hack/probe-instana.sh rollouts-pod-template-hash <hash>`. The mechanism is
+   `./scripts/probe-instana.sh rollouts-pod-template-hash <hash>`. The mechanism is
    already established (see §3); this is a confirmation, not a gate.
 2. Decide the support model: community OSS artifact vs supported product
    artifact. Apache-2.0 precedent points to community.

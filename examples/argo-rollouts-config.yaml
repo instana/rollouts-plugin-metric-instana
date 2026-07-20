@@ -1,6 +1,22 @@
 # Registers the Instana metric provider plugin with the Argo Rollouts
-# controller. The controller downloads the binary, verifies the sha256, and
-# loads it. Restart the controller after applying.
+# controller. Restart the controller after applying.
+#
+# The binary is not yet on a publicly reachable URL (the repo moves to
+# github.com/instana once legal sign-off is complete). Until then, copy
+# the binary onto every controller node and use a file:// location.
+#
+# Download from the v0.1.0 release assets and verify before deploying:
+#
+#   # linux/amd64
+#   echo "63f73634150b654b7738c067fa10d10d3eb5358cb98a4ea84fc8ad9392f60921  rollouts-plugin-metric-instana_0.1.0_linux_amd64" \
+#     | sha256sum --check
+#
+#   # linux/arm64
+#   echo "5b3e19ac012906f9f664aeb81e0b6441c1580a8dfc270d9174505c4ecb87a3c4  rollouts-plugin-metric-instana_0.1.0_linux_arm64" \
+#     | sha256sum --check
+#
+# Then copy the binary into the controller pod, e.g. via an initContainer
+# or a hostPath volume, at the path below.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,9 +25,13 @@ metadata:
 data:
   metricProviderPlugins: |-
     - name: "instana/metrics"
-      location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/v0.1.0/rollouts-plugin-metric-instana_0.1.0_linux_amd64"
-      sha256: "<REPLACE_WITH_CHECKSUM_FROM_SHA256SUMS>"
+      location: "file:///plugins/rollouts-plugin-metric-instana"
+      sha256: "63f73634150b654b7738c067fa10d10d3eb5358cb98a4ea84fc8ad9392f60921"
 
-    # Air-gapped clusters cannot reach github.com. Mount the binary into the
-    # controller pod (initContainer or volume) and point at it instead:
+    # arm64 nodes — use the arm64 binary and its checksum instead:
+    # - name: "instana/metrics"
     #   location: "file:///plugins/rollouts-plugin-metric-instana"
+    #   sha256: "5b3e19ac012906f9f664aeb81e0b6441c1580a8dfc270d9174505c4ecb87a3c4"
+
+    # Once the repo is public on github.com/instana, replace file:// with:
+    #   location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/v0.1.0/rollouts-plugin-metric-instana_0.1.0_linux_amd64"
