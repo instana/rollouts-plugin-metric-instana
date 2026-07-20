@@ -8,10 +8,10 @@
 # Usage:
 #   export INSTANA_HOST=https://<tenant>.instana.io
 #   export INSTANA_API_TOKEN=<read-only token>
-#   ./hack/probe-instana.sh [label-key] [label-value]
+#   ./scripts/probe-instana.sh [label-key] [label-value]
 #
 # Example, once a Rollout is running:
-#   ./hack/probe-instana.sh rollouts-pod-template-hash 6d4b8c9f7
+#   ./scripts/probe-instana.sh rollouts-pod-template-hash 6d4b8c9f7
 
 set -euo pipefail
 
