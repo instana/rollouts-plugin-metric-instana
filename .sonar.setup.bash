@@ -4,11 +4,11 @@
 set -eo pipefail
 
 # Install common utilities
-yum update -y
-yum -y install git make curl unzip gcc
+apt-get update -y
+apt-get install -y git make curl unzip gcc
 
 # Install Go
-curl -sSL https://go.dev/dl/go1.21.linux-amd64.tar.gz | tar -C /usr/local -xz
+curl -sSL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | tar -C /usr/local -xz
 export PATH=$PATH:/usr/local/go/bin
 export GOPATH=/workdir/go
 mkdir -p "${GOPATH}"
