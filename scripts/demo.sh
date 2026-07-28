@@ -28,6 +28,9 @@ IMAGE="rollouts-plugin-metric-instana:demo"
 BIN="rollouts-plugin-metric-instana"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The stub runs inside a local kind cluster created by this script; it is
+# never exposed outside the node and carries no credentials or sensitive data.
+# Plain HTTP is intentional for this in-cluster demo endpoint. NOSONAR
 STUB_HOST="http://stub-instana.argo-rollouts.svc.cluster.local:8080"
 
 info()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }

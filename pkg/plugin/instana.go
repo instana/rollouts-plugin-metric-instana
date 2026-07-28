@@ -40,7 +40,14 @@ func newInstanaClient(cfg *Config) (*instanaClient, error) {
 
 	transport := &http.Transport{}
 	if cfg.Insecure {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		// InsecureSkipVerify is intentional: this path is only reached when the
+		// operator explicitly sets insecure:true in the AnalysisTemplate, which
+		// is documented as a test-cluster-only escape hatch. Certificate chain
+		// validation and hostname verification are both enforced by default
+		// (cfg.Insecure == false). Setting InsecureSkipVerify disables both in
+		// one flag — there is no separate hostname-verification field in Go's
+		// tls.Config.
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // intentional opt-in, see comment above // NOSONAR S4830 S4423
 	}
 
 	return &instanaClient{
