@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# scripts/release-manual.sh — build release artifacts without the CI/CD pipeline.
+# scripts/release-manual.sh — build release artifacts locally without GitHub Actions.
 #
-# Use this when the automated pipeline (IBM CD + goreleaser) is not yet wired
-# up for a given version and you need to publish a release manually.
+# The normal release path is: push a vX.Y.Z tag → GitHub Actions runs goreleaser.
+# Use this script only when you need artifacts on a machine that cannot push a tag
+# (e.g. air-gapped environment or a quick local smoke-test).
 #
 # Usage:
-#   VERSION=0.1.0 ./scripts/release-manual.sh
+#   VERSION=1.2.3 ./scripts/release-manual.sh
 #
 # Output (in dist/):
 #   rollouts-plugin-metric-instana_<VERSION>_linux_amd64
@@ -15,7 +16,6 @@
 # After running:
 #   1. Upload the three files in dist/ as GitHub release assets for tag v<VERSION>.
 #   2. Copy the sha256 values from SHA256SUMS into examples/argo-rollouts-config.yaml.
-#   3. Update the download URLs in examples/argo-rollouts-config.yaml and INSTALLING.md.
 
 set -euo pipefail
 

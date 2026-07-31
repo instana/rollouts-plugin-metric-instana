@@ -52,43 +52,45 @@ make checksums # sha256 for the controller ConfigMap
 the same script, so a green local run means a green build. CodeQL and Go
 dependency submission run as separate workflows.
 
-> The repo is staged on github.ibm.com while access to the public `instana` org
-> is arranged. GitHub Actions is disabled on Enterprise, so the workflows are
-> dormant for now — use `make verify` locally. The Go module path already points
-> at the public home (`github.com/instana/…`), so it will not `go get` from
-> Enterprise until the move.
-
 ## Release
 
-Releases mirror `instana/terraform-provider-instana`, which publishes the same
-category of artifact (a Go plugin binary consumed by a third-party OSS tool).
+Releases are published via GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml))
+using [goreleaser](https://goreleaser.com/). Pushing a `vX.Y.Z` tag triggers
+the workflow automatically.
 
-`.pipeline-config.yaml` (IBM Continuous Delivery) owns the release: it runs
-goreleaser (`.goreleaser.yml`) on a `v*` tag to cross-compile, checksum, and
-GPG-sign. `.github/workflows/release.yml` is deliberately **disabled**
-(`workflow_dispatch` only) so the two paths cannot both publish — exactly how
-the Terraform provider does it.
+### To cut a release
 
-One deliberate difference from that provider: it publishes **zips**, because the
-Terraform Registry expects them. The Argo Rollouts controller instead downloads a
-**raw executable** and execs it, so `archives.formats` is `[binary]` here.
+```sh
+git tag -a v1.2.3 -m "Release v1.2.3"
+git push origin v1.2.3
+```
 
-Assets published per tag:
+goreleaser cross-compiles, generates SHA256SUMS, GPG-signs the checksum file,
+and publishes a GitHub Release. The Argo Rollouts controller downloads a
+**raw executable** (not a zip), so `archives.formats` is `[binary]`.
+
+### Assets published per tag
 
 ```
 rollouts-plugin-metric-instana_<version>_linux_amd64
 rollouts-plugin-metric-instana_<version>_linux_arm64
-rollouts-plugin-metric-instana_<version>_darwin_{amd64,arm64}
+rollouts-plugin-metric-instana_<version>_darwin_amd64
+rollouts-plugin-metric-instana_<version>_darwin_arm64
 rollouts-plugin-metric-instana_<version>_SHA256SUMS
 rollouts-plugin-metric-instana_<version>_SHA256SUMS.sig
 ```
 
-The pipeline needs `GHP_PAT`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`,
-`GPG_FINGERPRINT`, `GIT_USER_NAME`, `GIT_USER_EMAIL` and `TAG` — the same
-environment properties the Terraform provider already uses.
+### One-time secrets setup (Settings → Secrets and variables → Actions)
+
+| Secret | How to obtain |
+|--------|---------------|
+| `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys <fingerprint>` |
+| `GPG_PASSPHRASE` | Passphrase for the key above |
+
+`GITHUB_TOKEN` is provided automatically by Actions — no manual secret needed.
 
 The controller verifies **sha256 only** — take the value from `SHA256SUMS`. The
-GPG signature is defence in depth, not something Argo checks.
+GPG signature is defence in depth and is not verified by Argo.
 
 ## Install
 
