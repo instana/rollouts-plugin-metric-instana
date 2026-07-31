@@ -1,16 +1,19 @@
-name: Release (Disabled - Using CI/CD Pipeline)
+name: Release
 
-# Releases are handled by the CI/CD pipeline defined in .pipeline-config.yaml,
-# which runs goreleaser with the GPG signing key. This workflow is kept for
-# manual smoke-testing only and must not trigger on tag pushes, or both paths
-# would publish the same tag.
+# Triggered by a vX.Y.Z tag push.  goreleaser cross-compiles the four
+# binaries, generates SHA256SUMS, GPG-signs the checksum file, and publishes
+# everything as a GitHub Release.
 #
-# Same arrangement as instana/terraform-provider-instana.
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   GPG_PRIVATE_KEY   ASCII-armoured private key
+#                     (gpg --armor --export-secret-keys <fingerprint>)
+#   GPG_PASSPHRASE    Passphrase for the key above
+#
+# GITHUB_TOKEN is provided automatically by Actions — no setup needed.
 on:
-  workflow_dispatch:
-  # push:
-  #   tags:
-  #     - 'v*'
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write

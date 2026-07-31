@@ -1,22 +1,19 @@
 # Registers the Instana metric provider plugin with the Argo Rollouts
 # controller. Restart the controller after applying.
 #
-# The binary is not yet on a publicly reachable URL (the repo moves to
-# github.com/instana once legal sign-off is complete). Until then, copy
-# the binary onto every controller node and use a file:// location.
+# Replace <version> with the release tag (e.g. v1.0.0) and update sha256
+# with the matching value from the SHA256SUMS file on the GitHub release page:
+#   https://github.com/instana/rollouts-plugin-metric-instana/releases
 #
-# Download from the v0.1.0 release assets and verify before deploying:
+# Verify the binary before deploying:
 #
 #   # linux/amd64
-#   echo "63f73634150b654b7738c067fa10d10d3eb5358cb98a4ea84fc8ad9392f60921  rollouts-plugin-metric-instana_0.1.0_linux_amd64" \
-#     | sha256sum --check
+#   curl -sSLO https://github.com/instana/rollouts-plugin-metric-instana/releases/download/<version>/rollouts-plugin-metric-instana_<version>_linux_amd64
+#   curl -sSLO https://github.com/instana/rollouts-plugin-metric-instana/releases/download/<version>/rollouts-plugin-metric-instana_<version>_SHA256SUMS
+#   sha256sum --check --ignore-missing rollouts-plugin-metric-instana_<version>_SHA256SUMS
 #
-#   # linux/arm64
-#   echo "5b3e19ac012906f9f664aeb81e0b6441c1580a8dfc270d9174505c4ecb87a3c4  rollouts-plugin-metric-instana_0.1.0_linux_arm64" \
-#     | sha256sum --check
-#
-# Then copy the binary into the controller pod, e.g. via an initContainer
-# or a hostPath volume, at the path below.
+# Air-gapped clusters: copy the binary into the controller pod via an
+# initContainer or hostPath volume and use a file:// location instead.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,14 +21,17 @@ metadata:
   namespace: argo-rollouts
 data:
   metricProviderPlugins: |-
+    # linux/amd64 — update <version> and sha256 for each release
     - name: "instana/metrics"
-      location: "file:///plugins/rollouts-plugin-metric-instana"
-      sha256: "63f73634150b654b7738c067fa10d10d3eb5358cb98a4ea84fc8ad9392f60921"
+      location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/<version>/rollouts-plugin-metric-instana_<version>_linux_amd64"
+      sha256: "<sha256-from-SHA256SUMS>"
 
-    # arm64 nodes — use the arm64 binary and its checksum instead:
+    # linux/arm64 — use the arm64 binary and its checksum instead:
+    # - name: "instana/metrics"
+    #   location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/<version>/rollouts-plugin-metric-instana_<version>_linux_arm64"
+    #   sha256: "<sha256-from-SHA256SUMS>"
+
+    # Air-gapped (file already on every node):
     # - name: "instana/metrics"
     #   location: "file:///plugins/rollouts-plugin-metric-instana"
-    #   sha256: "5b3e19ac012906f9f664aeb81e0b6441c1580a8dfc270d9174505c4ecb87a3c4"
-
-    # Once the repo is public on github.com/instana, replace file:// with:
-    #   location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/v0.1.0/rollouts-plugin-metric-instana_0.1.0_linux_amd64"
+    #   sha256: "<sha256-from-SHA256SUMS>"
