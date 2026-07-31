@@ -1,0 +1,45 @@
+name: Release (Disabled - Using CI/CD Pipeline)
+
+# Releases are handled by the CI/CD pipeline defined in .pipeline-config.yaml,
+# which runs goreleaser with the GPG signing key. This workflow is kept for
+# manual smoke-testing only and must not trigger on tag pushes, or both paths
+# would publish the same tag.
+#
+# Same arrangement as instana/terraform-provider-instana.
+on:
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Import GPG signing key
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6
+        id: gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}

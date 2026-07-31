@@ -1,0 +1,7 @@
+/dist/
+*.test
+*.out
+.DS_Store
+
+# Local agent tooling; must not ship in a public repo.
+.bob/

@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: demo
+  namespace: demo
+spec:
+  replicas: 4
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels: { app: demo }
+  template:
+    metadata:
+      labels: { app: demo }
+    spec:
+      containers:
+        - name: demo
+          image: argoproj/rollouts-demo:blue
+          ports:
+            - containerPort: 8080
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+  strategy:
+    canary:
+      steps:
+        - setWeight: 25
+        - pause: { duration: 10s }
+        # Argo passes the canary ReplicaSet's pod-template-hash straight into
+        # the template. That hash is what scopes the Instana query to the
+        # canary pods rather than the whole service.
+        - analysis:
+            templates:
+              - templateName: instana-canary
+            args:
+              - name: pod-template-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+        - setWeight: 100

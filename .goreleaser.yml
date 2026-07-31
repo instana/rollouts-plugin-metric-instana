@@ -1,0 +1,58 @@
+version: 2
+
+project_name: rollouts-plugin-metric-instana
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}'
+    goos:
+      # The Argo Rollouts controller runs on linux; darwin is for local testing.
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary: '{{ .ProjectName }}'
+
+archives:
+  # The controller downloads a RAW executable from the `location` in the
+  # argo-rollouts-config ConfigMap and verifies its sha256. Do not wrap the
+  # binary in zip/tar, or the controller will fail to exec it.
+  - formats: [binary]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  prerelease: auto
+
+changelog:
+  disable: false
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
