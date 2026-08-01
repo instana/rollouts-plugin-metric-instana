@@ -1,13 +1,8 @@
 # Argo Rollouts metric provider plugin for Instana
 
-Lets [Argo Rollouts](https://argo-rollouts.readthedocs.io/) query Instana
-during a canary or blue-green rollout and automatically promote or roll back
-based on the result — the same role the built-in Datadog and New Relic
-providers play.
-
-This closes the gap left by the Instana ↔ Argo Rollouts *visibility* feature
-(`INSTA-58207`), which only surfaces rollout state in the Instana dashboard and
-does not feed the promotion decision.
+Automatically promote or roll back [Argo Rollouts](https://argo-rollouts.readthedocs.io/)
+canary deployments based on live Instana metrics — the same role the built-in
+Datadog and New Relic providers play, now for Instana.
 
 ## How it works
 
@@ -21,132 +16,198 @@ Argo Rollouts controller ──RPC──▶ this plugin ──HTTPS──▶ Ins
                          promote canary  or  roll back
 ```
 
-The plugin implements the Argo Rollouts metric-provider plugin interface
-(`InitPlugin`, `Run`, `Resume`, `Terminate`, `GarbageCollect`, `Type`,
-`GetMetadata`) and is served as a standalone binary over HashiCorp go-plugin
-RPC.
+At each analysis interval the plugin queries the Instana
+[call-groups API](https://instana.github.io/openapi/) for the canary
+ReplicaSet, reduces the result to a scalar, and returns it to Argo for
+evaluation against your `successCondition`. A failed condition rolls the
+canary back automatically.
 
-## Layout
+---
 
-| Path | Purpose |
-|------|---------|
-| `main.go` | go-plugin handshake + serve |
-| `pkg/plugin/plugin.go` | metric-provider interface implementation |
-| `pkg/plugin/config.go` | parse `provider.plugin["instana/metrics"]` |
-| `pkg/plugin/instana.go` | Instana metrics API client + scalar reduction |
-| `pkg/plugin/plugin_test.go` | unit tests against a mocked Instana API |
-| `examples/` | ConfigMap, AnalysisTemplate, Rollout |
-| `manifests/secret.yaml` | API token secret |
+## Prerequisites
 
-## Build and verify
+- Argo Rollouts **v1.2+** with plugin support enabled
+- An Instana tenant with APM data for your workload
+- A **read-only** Instana API token (metrics scope only)
 
-```sh
-make hooks     # once: run the same checks on every commit
-make verify    # == ./ci/verify.sh == exactly what CI runs
-make build-all # cross-compile linux amd64/arm64 into dist/
-make checksums # sha256 for the controller ConfigMap
+---
+
+## Installation
+
+### 1. Register the plugin with the Argo Rollouts controller
+
+Download the binary for your node architecture from the
+[latest GitHub release](https://github.com/instana/rollouts-plugin-metric-instana/releases)
+and update the sha256 from the `SHA256SUMS` file on that release page.
+
+```yaml
+# argo-rollouts-config ConfigMap (namespace: argo-rollouts)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argo-rollouts-config
+  namespace: argo-rollouts
+data:
+  metricProviderPlugins: |-
+    - name: "instana/metrics"
+      location: "https://github.com/instana/rollouts-plugin-metric-instana/releases/download/<version>/rollouts-plugin-metric-instana_<version>_linux_amd64"
+      sha256: "<sha256-from-SHA256SUMS>"
 ```
 
-`ci/verify.sh` runs gofmt, `go vet`, unit tests, a build, the integration tests,
-`govulncheck`, and `goreleaser check`. CI (`.github/workflows/build.yml`) calls
-the same script, so a green local run means a green build. CodeQL and Go
-dependency submission run as separate workflows.
+Apply and restart the controller:
+
+```sh
+kubectl apply -f argo-rollouts-config.yaml
+kubectl rollout restart deployment/argo-rollouts -n argo-rollouts
+```
+
+> **Air-gapped clusters** — copy the binary to every node and use a
+> `file://` location instead:
+> `location: "file:///plugins/rollouts-plugin-metric-instana"`
+
+### 2. Create the API token Secret
+
+```sh
+kubectl create secret generic instana-api-token \
+  --from-literal=token=<your-instana-api-token> \
+  -n <your-app-namespace>
+```
+
+Or apply [`manifests/secret.yaml`](manifests/secret.yaml) after filling in the
+token value.
+
+### 3. Expose the token to the controller
+
+```sh
+kubectl -n argo-rollouts set env deploy/argo-rollouts \
+  INSTANA_API_TOKEN=- --from=secret/instana-api-token --keys=token
+```
+
+Alternatively add a `valueFrom.secretKeyRef` to the controller Deployment.
+
+---
+
+## Usage
+
+### AnalysisTemplate
+
+Create an `AnalysisTemplate` that references `provider.plugin: instana/metrics`.
+The example below gates on error rate and P90 latency. Argo injects the canary
+`pod-template-hash` automatically via `valueFrom.podTemplateHashValue: Latest`.
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: instana-canary
+spec:
+  args:
+    - name: pod-template-hash
+  metrics:
+    - name: error-rate
+      interval: 1m
+      count: 5
+      successCondition: result <= 0.05   # errors is a ratio (0..1), not a percentage
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://<tenant>.instana.io
+            apiTokenEnv: INSTANA_API_TOKEN
+            metric: errors
+            aggregation: MEAN
+            granularity: 60
+            timeWindowMs: 300000
+            clusterName: <my-cluster>
+            namespace: <my-namespace>
+            groupByTag: kubernetes.pod.label
+            groupByTagKey: rollouts-pod-template-hash
+            groupByTagEntity: DESTINATION
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                entity: DESTINATION
+                value: "{{args.pod-template-hash}}"
+
+    - name: latency-p90
+      interval: 1m
+      count: 5
+      successCondition: result <= 500    # milliseconds
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://<tenant>.instana.io
+            apiTokenEnv: INSTANA_API_TOKEN
+            metric: latency
+            aggregation: P90
+            granularity: 60
+            timeWindowMs: 300000
+            clusterName: <my-cluster>
+            namespace: <my-namespace>
+            groupByTagKey: rollouts-pod-template-hash
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                value: "{{args.pod-template-hash}}"
+```
+
+### Wire the analysis into a Rollout
+
+```yaml
+strategy:
+  canary:
+    steps:
+      - setWeight: 20
+      - pause: { duration: 2m }
+      - analysis:
+          templates:
+            - templateName: instana-canary
+          args:
+            - name: pod-template-hash
+              valueFrom:
+                podTemplateHashValue: Latest
+      - setWeight: 60
+      - pause: { duration: 2m }
+      - setWeight: 100
+```
+
+See [`examples/`](examples/) for complete, ready-to-apply manifests.
+
+---
+
+## Configuration reference
+
+All fields go under `metric.provider.plugin["instana/metrics"]`.
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `host` | yes | — | Instana tenant base URL (e.g. `https://acme.instana.io`) |
+| `metric` | yes | — | Instana metric ID: `errors`, `latency`, `calls`, … |
+| `aggregation` | no | `MEAN` | `MEAN`, `SUM`, `P90`, `P95`, `P99`, … |
+| `granularity` | no | `60` | Resolution in seconds |
+| `timeWindowMs` | no | `60000` | Look-back window in milliseconds |
+| `clusterName` | no | — | Scope to a specific cluster. **Strongly recommended** — a pod-template-hash is not globally unique. |
+| `namespace` | no | — | Scope to a specific namespace. **Strongly recommended** for the same reason. |
+| `groupByTag` | no | `kubernetes.pod.label` | Instana tag to group call groups by |
+| `groupByTagKey` | no | `rollouts-pod-template-hash` | Label key when using `KEY_VALUE_PAIR` tags |
+| `groupByTagEntity` | no | `DESTINATION` | Tag entity direction |
+| `selectGroup` | no | — | When canary and stable both report, pick this group by name. Set to `{{args.pod-template-hash}}`. |
+| `tagFilters` | no | — | Additional Instana tag filters for scoping |
+| `apiTokenEnv` | no | `INSTANA_API_TOKEN` | Name of the env var on the controller that holds the API token |
+| `pageSize` | no | `20` | Instana API page size (must be ≥ 1) |
+| `insecure` | no | `false` | Skip TLS verification — for testing only, never in production |
+
+---
 
 ## Release
 
-Releases are published via GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml))
-using [goreleaser](https://goreleaser.com/). Pushing a `vX.Y.Z` tag triggers
-the workflow automatically.
+Releases are published automatically via GitHub Actions when a `vX.Y.Z` tag is
+pushed. Each release includes binaries for linux/amd64, linux/arm64,
+darwin/amd64, and darwin/arm64, plus a `SHA256SUMS` file and its GPG signature.
 
-### To cut a release
-
-```sh
-git tag -a v1.2.3 -m "Release v1.2.3"
-git push origin v1.2.3
-```
-
-goreleaser cross-compiles, generates SHA256SUMS, GPG-signs the checksum file,
-and publishes a GitHub Release. The Argo Rollouts controller downloads a
-**raw executable** (not a zip), so `archives.formats` is `[binary]`.
-
-### Assets published per tag
-
-```
-rollouts-plugin-metric-instana_<version>_linux_amd64
-rollouts-plugin-metric-instana_<version>_linux_arm64
-rollouts-plugin-metric-instana_<version>_darwin_amd64
-rollouts-plugin-metric-instana_<version>_darwin_arm64
-rollouts-plugin-metric-instana_<version>_SHA256SUMS
-rollouts-plugin-metric-instana_<version>_SHA256SUMS.sig
-```
-
-### One-time secrets setup (Settings → Secrets and variables → Actions)
-
-| Secret | How to obtain |
-|--------|---------------|
-| `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys <fingerprint>` |
-| `GPG_PASSPHRASE` | Passphrase for the key above |
-
-`GITHUB_TOKEN` is provided automatically by Actions — no manual secret needed.
-
-The controller verifies **sha256 only** — take the value from `SHA256SUMS`. The
-GPG signature is defence in depth and is not verified by Argo.
-
-## Install
-
-1. Publish the binary as a GitHub release (or host it anywhere the controller
-   can reach), then put its URL + sha256 in
-   `examples/argo-rollouts-config.yaml` and apply it. Air-gapped clusters should
-   mount the binary and use a `file://` location instead.
-2. Create the API token secret: `kubectl apply -f manifests/secret.yaml`.
-3. Provide the API token to the controller as an env var:
-
-   ```sh
-   kubectl -n argo-rollouts set env deploy/argo-rollouts \
-     INSTANA_API_TOKEN=- --from=secret/instana-api-token --keys=token
-   ```
-
-   (or add a `valueFrom.secretKeyRef` to the controller Deployment).
-4. Restart the controller so it loads the plugin.
-
-## Use
-
-Apply an `AnalysisTemplate` (`examples/analysis-template.yaml`) referencing
-`provider.plugin: instana/metrics`, and wire it into a Rollout step
-(`examples/rollout.yaml`). Use `valueFrom.podTemplateHashValue: Latest` to scope
-the query to the canary variant.
-
-### Config fields
-
-Supplied under `metric.provider.plugin["instana/metrics"]`.
-
-| Field | Required | Default | Notes |
-|-------|----------|---------|-------|
-| `host` | yes | — | Instana tenant base URL |
-| `metric` | yes | — | Instana metric id (`errors`, `latency`, `calls`, …) |
-| `aggregation` | no | `MEAN` | `MEAN`, `SUM`, `P90`, … Instana lower-cases it in the series key |
-| `granularity` | no | `60` | seconds; also part of the series key (`errors.mean.60`) |
-| `timeWindowMs` | no | `60000` | look-back window |
-| `clusterName` | no | — | scope the query; a pod-template-hash is **not** globally unique |
-| `namespace` | no | — | scope the query, as above |
-| `groupByTag` | no | `kubernetes.pod.label` | tag to group call groups by |
-| `groupByTagKey` | no | `rollouts-pod-template-hash` | label key for `KEY_VALUE_PAIR` tags |
-| `groupByTagEntity` | no | `DESTINATION` | |
-| `selectGroup` | no | — | pick one group by name when canary and stable both report |
-| `tagFilters` | no | — | extra scoping; `kubernetes.pod.label` needs `key` **and** `value` |
-| `apiTokenEnv` | no | `INSTANA_API_TOKEN` | controller env var holding the token |
-| `pageSize` | no | `20` | must be ≥ 1 |
-| `insecure` | no | `false` | skip TLS verify (test only) |
-
-## Open decisions before shipping
-
-1. **Support model** — community OSS artifact vs supported product artifact.
-2. **Secret handling** — controller env var (current) vs in-cluster Secret read
-   with RBAC, if per-namespace tokens are ever needed.
-3. **Auth scope** — least-privilege, read-only metrics API token.
-4. **Metric coverage** — `errors` and `latency` today; HTTP status codes are the
-   next ask.
-
-The Instana API contract is settled: `POST /api/application-monitoring/analyze/call-groups`,
-verified against a live tenant. Do **not** use `/metrics/services` — it accepts
-`tagFilterExpression`, returns 200, and silently ignores it.
+See [CONTRIBUTING.md](ONBOARDING.md) for details on building and contributing.
