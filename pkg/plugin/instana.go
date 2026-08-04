@@ -191,7 +191,10 @@ func (c *instanaClient) getMetricValue(cfg *Config) (float64, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read Instana response body: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return 0, fmt.Errorf("Instana returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
