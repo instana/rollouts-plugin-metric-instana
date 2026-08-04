@@ -32,7 +32,7 @@ step "unit tests"
 go test ./... || bad "unit tests failed"
 
 step "build"
-CGO_ENABLED=0 go build -o dist/rollouts-metric-plugin-instana . || bad "build failed"
+CGO_ENABLED=0 go build -o dist/rollouts-plugin-metric-instana . || bad "build failed"
 
 step "integration tests (real binary over go-plugin RPC)"
 # -count=1 disables the test cache. This test execs dist/<binary>, which is not
