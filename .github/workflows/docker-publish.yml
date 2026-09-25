@@ -1,0 +1,53 @@
+name: Docker Publish
+
+# Triggered by the same vX.Y.Z tag push that starts the goreleaser release.
+# Builds the linux/amd64 binary directly, packages it into the Docker image
+# defined by ./Dockerfile, and pushes to the internal registry.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DOCKER_REGISTRY        Registry host
+#   DOCKER_REGISTRY_USER   Registry username
+#   DOCKER_REGISTRY_TOKEN  Registry password / token
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build linux/amd64 binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath \
+              -ldflags "-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ github.sha }}" \
+              -o rollouts-plugin-metric-instana .
+
+      - name: Log in to registry
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ${{ secrets.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_REGISTRY_USER }}
+          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_REGISTRY }}/rollouts-instana-plugin:${{ github.ref_name }}
