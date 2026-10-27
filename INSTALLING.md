@@ -260,6 +260,60 @@ spec:
                 value: "{{args.pod-template-hash}}"
 ```
 
+To gate on HTTP 500s specifically, count `calls` filtered by status. A healthy
+canary returns no matching calls, so the condition must opt in with
+`default(result, 0)`. Add a traffic guard beside it so "no 500s" cannot be
+mistaken for "no traffic". The `call.http.status` filter has not yet been
+confirmed against a live tenant; verify its `entity` and value type first:
+
+```yaml
+    - name: http-500s
+      interval: 1m
+      count: 5
+      successCondition: default(result, 0) <= 5   # 500s in the last granularity bucket
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://<your-tenant>.instana.io
+            metric: calls
+            aggregation: SUM
+            clusterName: <your-cluster>
+            namespace: <your-namespace>
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: call.http.status
+                operator: EQUALS
+                entity: NOT_APPLICABLE
+                value: "500"
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                entity: DESTINATION
+                value: "{{args.pod-template-hash}}"
+
+    - name: canary-traffic
+      interval: 1m
+      count: 5
+      successCondition: default(result, 0) > 0   # the canary must be serving calls
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://<your-tenant>.instana.io
+            metric: calls
+            aggregation: SUM
+            clusterName: <your-cluster>
+            namespace: <your-namespace>
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                entity: DESTINATION
+                value: "{{args.pod-template-hash}}"
+```
+
 ---
 
 ## Step 7 — Wire the analysis into your Rollout
@@ -297,10 +351,13 @@ strategy:
 
 > **Traffic must reach the canary during the pause window.**
 > Instana only sees call groups for pods that received real requests. If no traffic
-> flows to the canary during the `pause` step, the plugin query returns empty results,
-> which are counted as `Error` measurements rather than `Failed`. Make sure your
-> load balancer or ingress is routing a share of live traffic to `canaryService`
-> before the analysis gate fires.
+> flows to the canary during the `pause` step, the plugin query returns an empty
+> result, recorded as value `[]` and evaluated as `nil`. A condition such as
+> `result <= 0.05` then produces an `Error` measurement rather than `Failed`, and
+> enough consecutive errors abort the rollout. Make sure your load balancer or
+> ingress is routing a share of live traffic to `canaryService` before the
+> analysis gate fires, and add the `canary-traffic` guard from Step 6 so the
+> failure is reported as `Failed` with a clear value.
 
 > **Why two analysis gates?**
 > At 20% weight a degraded canary may not accumulate enough error calls within
@@ -338,7 +395,7 @@ For all config options see the [README](README.md#config-fields).
 | `AnalysisRun` phase `Error`: "plugin handshake failed" | sha256 mismatch or controller cannot reach the download URL |
 | `Instana returned 401: Unauthorized request` | `INSTANA_API_TOKEN` env var is missing or set to a literal value (e.g. `"-"`). Use the `kubectl patch` in Step 4 — not `kubectl set env --from=secret` |
 | `Error: Instana API token not set` | Secret not applied or env var not injected into the controller |
-| `Instana returned no groups` | `tagFilters` don't match any spans — verify `clusterName` and `namespace` |
+| Value `[]`, phase `Error`: "mismatched types <nil> and float64" | The query matched no calls. Verify `clusterName`, `namespace`, and `tagFilters`. If empty is the healthy case for this metric (e.g. an HTTP 500 count), wrap the condition in `default(result, 0)` |
 | Gate passes even when canary is degraded | Missing `selectGroup` — add it so only the canary group is scored |
 | Service appears in Instana under wrong or literal name | Dockerfile uses JSON-array `ENTRYPOINT` — shell variable substitution does not work in that form. Switch to shell-form: `ENTRYPOINT ["sh", "-c", "exec java -Dinstana.service.name=${INSTANA_SERVICE_NAME:-my-service} -jar app.jar"]` |
 | `error-rate` always `0` even after injecting errors | Test traffic was sent to the **stable** service, not the canary. Ensure traffic reaches the canary pods — use the canary service endpoint or target the canary pods directly |

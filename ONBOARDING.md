@@ -40,7 +40,7 @@ and that is what separates canary traffic from stable traffic.
 | D1 | Ship a **native Go metric-provider plugin**, and document a **Web-provider recipe** alongside it | The plugin gives Datadog-parity UX. The recipe needs no binary at all, so it covers air-gapped and plugin-averse customers at near-zero cost. |
 | D2 | Query `POST /api/application-monitoring/analyze/call-groups` | **`/metrics/services` silently ignores `tagFilterExpression`.** It returns HTTP 200 and the full unfiltered result set. A canary gate built on it would score cluster-wide traffic and be meaningless. This was found by experiment, not documentation. |
 | D3 | Scope the canary with the `kubernetes.pod.label` tag, keyed on `rollouts-pod-template-hash` | It is a `KEY_VALUE_PAIR` tag, so the filter needs a separate `key` field. Argo injects the canary hash automatically via `valueFrom.podTemplateHashValue: Latest`. |
-| D4 | **An empty result is an error, never `0`** | An error-rate gate that returns `0` for "no data" would promote a canary that is emitting no telemetry at all — the exact failure it exists to prevent. |
+| D4 | **An empty result is `nil`, never `0`; `default()` is the explicit opt-in** | An error-rate gate that returns `0` for "no data" would promote a canary that is emitting no telemetry at all — the exact failure it exists to prevent. But a filter that selects the failure itself (`call.http.status=500`) is empty precisely when the canary is healthy, and a hard error there rolls back a clean canary. Reporting `nil` keeps both: a bare `result <= 0.05` still errors on `nil`, while `default(result, 0)` lets the template say empty is fine. This is the Datadog provider's contract, so templates port with only the `provider` block changed. |
 | D5 | Delegate condition evaluation to Argo's own `evaluate.EvaluateResult` | `successCondition` / `failureCondition` semantics stay identical to every other provider. Don't reinvent them. |
 | D6 | Distribute from **its own repo**, `github.com/instana/rollouts-plugin-metric-instana` (public), via goreleaser | The repo name follows the Argo ecosystem convention (`rollouts-plugin-metric-{ai,opensearch,honeycomb,…}`) so it is discoverable from the Argo side, while the org matches `instana/terraform-provider-instana` — the closest precedent, and the one whose release path already runs in production. **Not** `instana/content` — that is the docs repo, its releases carry documentation PDFs, and its tags track doc releases. Access to the public `instana` org is still being arranged; the repo is staged on github.ibm.com meanwhile. |
 | D11 | **`.pipeline-config.yaml` (IBM Continuous Delivery) owns releases**; GitHub Actions runs build/test/scan | Copies `instana/terraform-provider-instana` exactly: its `.github/workflows/release.yml` is disabled (`workflow_dispatch` only) so IBM CD is the single publisher and the two paths cannot both push a tag. Concourse (used by internal services) does not apply — it is bound to github.ibm.com and internal Artifactory. `ci/verify.sh` is the shared entrypoint so local, hook, and CI runs are identical. |
@@ -66,7 +66,7 @@ Nothing below is inferred from documentation.
 | `pagination.page` / `pageSize` must be `>= 1` | `{}` → `422 "metrics must not be null"`; `retrievalSize` → `422` |
 | `timeFrame.to: 0` means epoch 0, not "now" | returned `totalHits: 0` until a real millisecond timestamp was supplied |
 | The plugin returns real values from real Instana | `errors` → `0.208955223880597`, `latency P90` → `36` |
-| A filter matching nothing errors instead of returning zero | live test: `phase=Error`, `"returned no groups"` |
+| A filter matching nothing yields `nil`; without `default()` the gate errors instead of passing | unit + RPC tests: value `[]`, `phase=Error` for `result <= 5.0`; `phase=Successful` for `default(result, 0) <= 5.0` |
 | The compiled binary speaks the controller's RPC protocol | integration tests dispense the real binary over go-plugin RPC; `Type()` → `"Instana"` |
 | A degraded canary produces the rollback phase | `phase=Failed` at `value=37.5` against `result <= 5.0` |
 | The real controller loads the plugin from `argo-rollouts-config` | `"Copied plugin from /plugins/... to /home/argo-rollouts/plugin-bin/<plugin-key>"` |
@@ -231,8 +231,9 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
 - **`kubernetes.label` and `kubernetes.pod.label` both work** for pod labels;
   Instana's own rollout UI uses one in each of two hooks. We use the
   pod-specific name.
-- **Empty ≠ zero.** See D4. Guarded by
-  `TestReduceToScalar_EmptyResultIsError` and a live test.
+- **Empty ≠ zero.** See D4. Empty is `nil`, recorded as value `[]`. Guarded by
+  `TestRun_EmptyResultWithoutDefaultIsError`, `TestRun_EmptyResultWithDefaultPasses`,
+  the matching RPC tests, and a live test.
 - **Ambiguity ≠ pick the first.** If several groups come back and no
   `selectGroup` is set, we error rather than silently score the stable variant.
 - **`errors` is a ratio (0..1), not a percentage.** `successCondition: result <= 0.05`
@@ -263,8 +264,9 @@ Air-gapped clusters cannot reach github.com. Mount the binary and use
 2. Decide the support model: community OSS artifact vs supported product
    artifact. Apache-2.0 precedent points to community.
 3. Converge with Emil's independent prototype — two plugins exist.
-4. Add metrics beyond `errors` / `latency` (Irfad's ask; the original idea cites
-   HTTP status codes).
+4. HTTP status gating works via `calls` + a `call.http.status` tag filter +
+   `default(result, 0)` (see README *Empty results*). Confirm the tag filter
+   value type against a live tenant; the example sends `"500"` as a string.
 5. Consider a `baselineComparison` mode: one call already returns both canary
    and stable groups, which is exactly the `(canary - stable) / stable > X%`
    check the epic describes.

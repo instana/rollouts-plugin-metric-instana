@@ -172,44 +172,55 @@ func (c *instanaClient) buildRequest(cfg *Config) callGroupsRequest {
 }
 
 // getMetricValue runs the query and reduces the response to a single scalar.
-func (c *instanaClient) getMetricValue(cfg *Config) (float64, error) {
+// A nil value with a nil error means the query matched nothing.
+func (c *instanaClient) getMetricValue(cfg *Config) (*float64, error) {
 	payload, err := json.Marshal(c.buildRequest(cfg))
 	if err != nil {
-		return 0, fmt.Errorf("failed to encode request: %w", err)
+		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.host+MetricsPath, bytes.NewReader(payload))
 	if err != nil {
-		return 0, fmt.Errorf("failed to build request: %w", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "apiToken "+c.token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("Instana request failed: %w", err)
+		return nil, fmt.Errorf("Instana request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return 0, fmt.Errorf("Instana returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("Instana returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsed callGroupsResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return 0, fmt.Errorf("failed to parse Instana response: %w", err)
+		return nil, fmt.Errorf("failed to parse Instana response: %w", err)
 	}
 	return reduceToScalar(parsed, metricKey(cfg), cfg.SelectGroup)
 }
 
 // reduceToScalar picks the group we care about and returns its latest value.
 //
-// An empty result is an error, never zero: for an error-rate gate, silently
-// returning 0 would promote a canary that is emitting no telemetry at all.
-func reduceToScalar(resp callGroupsResponse, key, selectGroup string) (float64, error) {
+// An empty result is nil, never zero. This mirrors the Datadog provider: the
+// AnalysisTemplate decides what empty means. A bare `result <= 0.05` fails to
+// evaluate against nil, so a canary emitting no telemetry still cannot pass an
+// error-rate gate by accident. A template that filters for the failure itself
+// (e.g. call.http.status=500, where empty is the healthy case) opts in with
+// `default(result, 0)`.
+//
+// Several groups with no selectGroup is still an error: that is ambiguity, not
+// emptiness, and picking one silently could score the stable variant. A group
+// that exists but carries no series for the key is also an error: the filter
+// matched calls, so a missing key means the metric, aggregation, or
+// granularity is wrong, and default() must not paper over a typo.
+func reduceToScalar(resp callGroupsResponse, key, selectGroup string) (*float64, error) {
 	if len(resp.Items) == 0 {
-		return 0, fmt.Errorf("Instana returned no groups for metric %q (check tagFilters and that the workload is reporting)", key)
+		return nil, nil
 	}
 
 	idx := 0
@@ -222,21 +233,21 @@ func reduceToScalar(resp callGroupsResponse, key, selectGroup string) (float64, 
 			}
 		}
 		if idx < 0 {
-			return 0, fmt.Errorf("no group named %q in Instana response for metric %q", selectGroup, key)
+			return nil, nil
 		}
 	} else if len(resp.Items) > 1 {
-		return 0, fmt.Errorf("Instana returned %d groups for metric %q; narrow with tagFilters or set selectGroup", len(resp.Items), key)
+		return nil, fmt.Errorf("Instana returned %d groups for metric %q; narrow with tagFilters or set selectGroup", len(resp.Items), key)
 	}
 
 	series, ok := resp.Items[idx].Metrics[key]
 	if !ok || len(series) == 0 {
-		return 0, fmt.Errorf("no data points for metric %q in group %q", key, resp.Items[idx].Name)
+		return nil, fmt.Errorf("no data points for metric %q in group %q", key, resp.Items[idx].Name)
 	}
 
 	last := series[len(series)-1]
 	if len(last) < 2 {
-		return 0, fmt.Errorf("malformed data point for metric %q", key)
+		return nil, fmt.Errorf("malformed data point for metric %q", key)
 	}
 	// data point is [timestampMillis, value]
-	return last[1], nil
+	return &last[1], nil
 }

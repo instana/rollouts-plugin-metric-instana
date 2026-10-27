@@ -136,14 +136,74 @@ Supplied under `metric.provider.plugin["instana/metrics"]`.
 | `pageSize` | no | `20` | must be ≥ 1 |
 | `insecure` | no | `false` | skip TLS verify (test only) |
 
+### Empty results
+
+Instana only returns a call group for pods that handled matching calls in the
+window. When nothing matches, the plugin reports the measurement value as `[]`
+and hands `nil` to the condition, the same way the Datadog provider does. What
+that means is up to the template:
+
+| Condition | Empty result |
+|-----------|--------------|
+| `result <= 0.05` | `Error` — evaluation fails on `nil`. A canary with no telemetry cannot pass by accident. |
+| `default(result, 0) <= 5` | evaluates with `0`. Use this when empty is the healthy case. |
+| `isNil(result)` | `true`; combine as needed. |
+
+Several groups and no `selectGroup` is still an error. That is ambiguity, not
+emptiness.
+
+To gate on a count where zero is good, filter for the failure and opt in. The
+`call.http.status` filter below has not yet been confirmed against a live
+tenant; verify the `entity` and value type before relying on it:
+
+```yaml
+- name: http-500s
+  successCondition: default(result, 0) <= 5
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+        tagFilters:
+          - name: call.http.status
+            operator: EQUALS
+            entity: NOT_APPLICABLE
+            value: "500"
+          # plus the usual pod-template-hash filter
+```
+
+Pair it with a traffic guard so "no 500s" is never mistaken for "no traffic":
+
+```yaml
+- name: canary-traffic
+  successCondition: default(result, 0) > 0
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+```
+
+Argo requires every metric in the template to succeed, so a canary that
+receives no traffic fails the run instead of promoting.
+
+#### Coming from Datadog
+
+| Datadog | Instana plugin |
+|---------|----------------|
+| `sum:trace.http.request.hits{http.status_code:500}` | `metric: calls`, `aggregation: SUM`, `tagFilters` on `call.http.status` |
+| `default(result, 0)` in the condition | unchanged |
+| error rate from `trace.http.request.errors` | `metric: errors`, `aggregation: MEAN` — a ratio `0..1` of Instana-classified erroneous calls, which includes 4xx, not an HTTP 500 count |
+
 ## Open decisions before shipping
 
 1. **Support model** — community OSS artifact vs supported product artifact.
 2. **Secret handling** — controller env var (current) vs in-cluster Secret read
    with RBAC, if per-namespace tokens are ever needed.
 3. **Auth scope** — least-privilege, read-only metrics API token.
-4. **Metric coverage** — `errors` and `latency` today; HTTP status codes are the
-   next ask.
+4. **Metric coverage** — `errors`, `latency`, and any `calls`-based count
+   (HTTP status codes via `tagFilters`, see *Empty results*). A
+   `baselineComparison` mode against the stable group is the next ask.
 
 The Instana API contract is settled: `POST /api/application-monitoring/analyze/call-groups`,
 verified against a live tenant. Do **not** use `/metrics/services` — it accepts
