@@ -84,8 +84,9 @@ func TestLive_Latency(t *testing.T) {
 	}
 }
 
-// A filter that matches nothing must error, not silently return 0 — otherwise a
-// canary emitting no telemetry would pass an error-rate gate.
+// A filter that matches nothing yields nil. A condition without default() must
+// then error, not silently pass — otherwise a canary emitting no telemetry
+// would sail through an error-rate gate.
 func TestLive_BogusFilterErrorsRatherThanReturningZero(t *testing.T) {
 	if os.Getenv("INSTANA_HOST") == "" {
 		t.Skip("set INSTANA_HOST")

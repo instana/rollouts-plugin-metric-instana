@@ -15,6 +15,11 @@ const ProviderType = "Instana"
 // and as the map key under metric.provider.plugin in the AnalysisTemplate.
 const PluginName = "instana/metrics"
 
+// emptyValue is the Measurement.Value recorded when the query matched nothing.
+// It is the same literal the Datadog provider records, so dashboards and
+// kubectl output read the same across providers.
+const emptyValue = "[]"
+
 // RpcPlugin implements the Argo Rollouts MetricProviderPlugin interface.
 type RpcPlugin struct {
 	LogCtx *log.Entry
@@ -49,8 +54,13 @@ func (p *RpcPlugin) Run(_ *v1alpha1.AnalysisRun, metric v1alpha1.Metric) v1alpha
 	measurement := v1alpha1.Measurement{
 		StartedAt:  &start,
 		FinishedAt: &finish,
-		Value:      formatValue(value),
+		Value:      emptyValue,
 	}
+	if value != nil {
+		measurement.Value = formatValue(*value)
+	}
+	// A nil pointer reaches the expression as nil, so `default(result, 0)` and
+	// `isNil(result)` work exactly as they do for the Datadog provider.
 	phase, evalErr := evaluate.EvaluateResult(value, metric, *p.LogCtx)
 	measurement.Phase = phase
 	if evalErr != nil {

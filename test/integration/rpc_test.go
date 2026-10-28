@@ -48,6 +48,13 @@ func binaryPath(t *testing.T) string {
 // sent the canary tag filter and auth header.
 func stubInstana(t *testing.T, errorRate float64) *httptest.Server {
 	t.Helper()
+	body := fmt.Sprintf(`{"totalHits":1,"items":[{"name":"canaryhash","metrics":{"errors.mean.60":[[1783566960000,%v]]}}]}`, errorRate)
+	return stubInstanaBody(t, body)
+}
+
+// stubInstanaBody serves a fixed call-groups response.
+func stubInstanaBody(t *testing.T, response string) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/application-monitoring/analyze/call-groups" {
 			t.Errorf("plugin hit unexpected path %q", r.URL.Path)
@@ -63,7 +70,7 @@ func stubInstana(t *testing.T, errorRate float64) *httptest.Server {
 			t.Errorf("expected tagFilterExpression scoping the canary, got: %v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"totalHits":1,"items":[{"name":"canaryhash","metrics":{"errors.mean.60":[[1783566960000,%v]]}}]}`, errorRate)
+		_, _ = w.Write([]byte(response))
 	}))
 }
 
@@ -165,6 +172,38 @@ func TestRPC_DegradedCanary_DoesNotPromote(t *testing.T) {
 		t.Fatalf("degraded canary was promoted; phase = %s value = %q", m.Phase, m.Value)
 	}
 	t.Logf("degraded canary correctly blocked: phase=%s value=%s", m.Phase, m.Value)
+}
+
+// An empty result crosses the RPC boundary as value "[]" and is evaluated by
+// the template's default(), matching the Datadog provider.
+func TestRPC_EmptyResult_WithDefault_Promotes(t *testing.T) {
+	srv := stubInstanaBody(t, `{"totalHits":0,"items":[]}`)
+	defer srv.Close()
+
+	p, kill := dispense(t)
+	defer kill()
+
+	m := p.Run(&v1alpha1.AnalysisRun{}, canaryMetric(t, srv.URL, "default(result, 0) <= 5.0"))
+	if m.Phase != v1alpha1.AnalysisPhaseSuccessful {
+		t.Fatalf("phase = %s (value=%q msg=%q), want Successful", m.Phase, m.Value, m.Message)
+	}
+	if m.Value != "[]" {
+		t.Errorf("value = %q, want []", m.Value)
+	}
+}
+
+// Without default() an empty result is still an Error, never a silent pass.
+func TestRPC_EmptyResult_WithoutDefault_Errors(t *testing.T) {
+	srv := stubInstanaBody(t, `{"totalHits":0,"items":[]}`)
+	defer srv.Close()
+
+	p, kill := dispense(t)
+	defer kill()
+
+	m := p.Run(&v1alpha1.AnalysisRun{}, canaryMetric(t, srv.URL, "result <= 5.0"))
+	if m.Phase != v1alpha1.AnalysisPhaseError {
+		t.Fatalf("phase = %s (value=%q), want Error without default()", m.Phase, m.Value)
+	}
 }
 
 func TestRPC_InstanaUnreachable_Errors(t *testing.T) {

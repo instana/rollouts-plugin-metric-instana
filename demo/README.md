@@ -53,7 +53,8 @@ scoped to.
 
 - The stub echoes back whatever group the plugin filtered on, because it cannot
   know the canary hash in advance. Real Instana returns zero groups for an
-  unknown value — which the plugin treats as an error, never as a healthy zero.
+  unknown value — which the plugin reports as `nil` (value `[]`). Without
+  `default()` in the condition that is an error, never a healthy zero.
 - After `bad` the Rollout is `Degraded`. Run `good` to roll forward again.
 - The plugin is delivered via an initContainer that copies the binary into the
   controller pod, and registered with `location: file:///plugins/...`. That is
