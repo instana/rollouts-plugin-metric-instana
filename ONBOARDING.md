@@ -66,7 +66,7 @@ make build-all         # cross-compile linux amd64/arm64 into dist/
 |---|----------|--------|
 | D1 | Query `POST /api/application-monitoring/analyze/call-groups` | `/metrics/services` accepts `tagFilterExpression` but silently ignores it — a filter that looks correct would score unfiltered cluster-wide traffic. |
 | D2 | Scope the canary by `kubernetes.pod.label` keyed on `rollouts-pod-template-hash` | Argo injects the canary hash automatically via `valueFrom.podTemplateHashValue: Latest`. The label is a `KEY_VALUE_PAIR` tag; the filter needs both `key` and `value`. |
-| D3 | **An empty result is an error, never `0`** | Returning `0` for "no data" would promote a canary that is emitting no telemetry — the exact failure the gate exists to prevent. |
+| D3 | **An empty result is `nil`, never `0`; `default()` is the explicit opt-in** | Returning `0` for "no data" could promote a canary emitting no telemetry. Returning `nil` makes an unguarded condition fail, while `default(result, 0)` lets templates explicitly allow empty results when appropriate. |
 | D4 | Delegate condition evaluation to Argo's `evaluate.EvaluateResult` | `successCondition` / `failureCondition` semantics stay identical to every other provider. |
 | D5 | Publish a **raw executable**, not a zip or tarball | The Argo controller downloads the file at `location`, verifies its sha256, and execs it directly. |
 | D6 | API token via an **env var on the controller** | Simplest approach for v1. A Secret + RBAC read is the follow-up if per-namespace tokens are needed. |

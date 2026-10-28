@@ -202,6 +202,66 @@ All fields go under `metric.provider.plugin["instana/metrics"]`.
 | `pageSize` | no | `20` | Instana API page size (must be ≥ 1) |
 | `insecure` | no | `false` | Skip TLS verification — for testing only, never in production |
 
+
+### Empty results
+
+Instana only returns a call group for pods that handled matching calls in the
+window. When nothing matches, the plugin reports the measurement value as `[]`
+and hands `nil` to the condition, the same way the Datadog provider does. What
+that means is up to the template:
+
+| Condition | Empty result |
+|-----------|--------------|
+| `result <= 0.05` | `Error` — evaluation fails on `nil`. A canary with no telemetry cannot pass by accident. |
+| `default(result, 0) <= 5` | evaluates with `0`. Use this when empty is the healthy case. |
+| `isNil(result)` | `true`; combine as needed. |
+
+Several groups and no `selectGroup` is still an error. That is ambiguity, not
+emptiness.
+
+To gate on a count where zero is good, filter for the failure and opt in. The
+`call.http.status` filter below has not yet been confirmed against a live
+tenant; verify the `entity` and value type before relying on it:
+
+```yaml
+- name: http-500s
+  successCondition: default(result, 0) <= 5
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+        tagFilters:
+          - name: call.http.status
+            operator: EQUALS
+            entity: NOT_APPLICABLE
+            value: "500"
+          # plus the usual pod-template-hash filter
+```
+
+Pair it with a traffic guard so "no 500s" is never mistaken for "no traffic":
+
+```yaml
+- name: canary-traffic
+  successCondition: default(result, 0) > 0
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+```
+
+Argo requires every metric in the template to succeed, so a canary that
+receives no traffic fails the run instead of promoting.
+
+#### Coming from Datadog
+
+| Datadog | Instana plugin |
+|---------|----------------|
+| `sum:trace.http.request.hits{http.status_code:500}` | `metric: calls`, `aggregation: SUM`, `tagFilters` on `call.http.status` |
+| `default(result, 0)` in the condition | unchanged |
+| error rate from `trace.http.request.errors` | `metric: errors`, `aggregation: MEAN` — a ratio `0..1` of Instana-classified erroneous calls, which includes 4xx, not an HTTP 500 count |
+
 ---
 
 ## Release
