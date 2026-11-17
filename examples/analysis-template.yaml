@@ -70,3 +70,60 @@ spec:
                 key: rollouts-pod-template-hash
                 operator: EQUALS
                 value: "{{args.pod-template-hash}}"
+
+    # Count of HTTP 500 responses from the canary. A healthy canary matches no
+    # calls, so the plugin reports nil and default(result, 0) turns that into 0.
+    # Without default() an empty result is an Error, never a silent pass.
+    - name: http-500s
+      interval: 1m
+      count: 5
+      successCondition: default(result, 0) <= 5
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://acme-prod.instana.io
+            apiTokenEnv: INSTANA_API_TOKEN
+            metric: calls
+            aggregation: SUM
+            granularity: 60
+            timeWindowMs: 300000
+            clusterName: my-cluster
+            namespace: my-namespace
+            groupByTagKey: rollouts-pod-template-hash
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: call.http.status
+                operator: EQUALS
+                entity: NOT_APPLICABLE
+                value: "500"
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                value: "{{args.pod-template-hash}}"
+
+    # Traffic guard: "no 500s" must not be mistaken for "no traffic". Every
+    # metric must succeed, so a canary serving nothing fails the run here.
+    - name: canary-traffic
+      interval: 1m
+      count: 5
+      successCondition: default(result, 0) > 0
+      failureLimit: 2
+      provider:
+        plugin:
+          instana/metrics:
+            host: https://acme-prod.instana.io
+            apiTokenEnv: INSTANA_API_TOKEN
+            metric: calls
+            aggregation: SUM
+            granularity: 60
+            timeWindowMs: 300000
+            clusterName: my-cluster
+            namespace: my-namespace
+            groupByTagKey: rollouts-pod-template-hash
+            selectGroup: "{{args.pod-template-hash}}"
+            tagFilters:
+              - name: kubernetes.pod.label
+                key: rollouts-pod-template-hash
+                operator: EQUALS
+                value: "{{args.pod-template-hash}}"
