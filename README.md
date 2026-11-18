@@ -26,9 +26,12 @@ canary back automatically.
 
 ## Prerequisites
 
-- Argo Rollouts **v1.2+** with plugin support enabled
+- Argo Rollouts **v1.5+** (metric plugins were introduced in 1.5.0)
 - An Instana tenant with APM data for your workload
-- A **read-only** Instana API token (metrics scope only)
+- A **read-only** Instana API token (the *Applications* permission is enough)
+
+For a complete step-by-step walkthrough, including air-gapped clusters and
+troubleshooting, see [INSTALLING.md](INSTALLING.md).
 
 ---
 
@@ -67,10 +70,13 @@ kubectl rollout restart deployment/argo-rollouts -n argo-rollouts
 
 ### 2. Create the API token Secret
 
+The Secret must be in the **controller's namespace**, because the controller
+reads it, not your application.
+
 ```sh
 kubectl create secret generic instana-api-token \
   --from-literal=token=<your-instana-api-token> \
-  -n <your-app-namespace>
+  -n argo-rollouts
 ```
 
 Or apply [`manifests/secret.yaml`](manifests/secret.yaml) after filling in the
@@ -79,11 +85,21 @@ token value.
 ### 3. Expose the token to the controller
 
 ```sh
-kubectl -n argo-rollouts set env deploy/argo-rollouts \
-  INSTANA_API_TOKEN=- --from=secret/instana-api-token --keys=token
+kubectl -n argo-rollouts patch deploy argo-rollouts -p '{
+  "spec": {"template": {"spec": {"containers": [{
+    "name": "argo-rollouts",
+    "env": [{
+      "name": "INSTANA_API_TOKEN",
+      "valueFrom": {"secretKeyRef": {"name": "instana-api-token", "key": "token"}}
+    }]
+  }]}}}
+}'
 ```
 
-Alternatively add a `valueFrom.secretKeyRef` to the controller Deployment.
+This keeps the Deployment's existing environment variables and can be
+re-applied safely. Avoid `kubectl set env --from=secret/...`: it can leave
+`INSTANA_API_TOKEN` set to a literal `-`, and queries then fail with
+`401 Unauthorized`.
 
 ---
 
@@ -201,6 +217,66 @@ All fields go under `metric.provider.plugin["instana/metrics"]`.
 | `apiTokenEnv` | no | `INSTANA_API_TOKEN` | Name of the env var on the controller that holds the API token |
 | `pageSize` | no | `20` | Instana API page size (must be ≥ 1) |
 | `insecure` | no | `false` | Skip TLS verification — for testing only, never in production |
+
+
+### Empty results
+
+Instana only returns a call group for pods that handled matching calls in the
+window. When nothing matches, the plugin reports the measurement value as `[]`
+and hands `nil` to the condition, the same way the Datadog provider does. What
+that means is up to the template:
+
+| Condition | Empty result |
+|-----------|--------------|
+| `result <= 0.05` | `Error` — evaluation fails on `nil`. A canary with no telemetry cannot pass by accident. |
+| `default(result, 0) <= 5` | evaluates with `0`. Use this when empty is the healthy case. |
+| `isNil(result)` | `true`; combine as needed. |
+
+Several groups and no `selectGroup` is still an error. That is ambiguity, not
+emptiness.
+
+To gate on a count where zero is good, filter for the failure and opt in. The
+`call.http.status` filter below has not yet been confirmed against a live
+tenant; verify the `entity` and value type before relying on it:
+
+```yaml
+- name: http-500s
+  successCondition: default(result, 0) <= 5
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+        tagFilters:
+          - name: call.http.status
+            operator: EQUALS
+            entity: NOT_APPLICABLE
+            value: "500"
+          # plus the usual pod-template-hash filter
+```
+
+Pair it with a traffic guard so "no 500s" is never mistaken for "no traffic":
+
+```yaml
+- name: canary-traffic
+  successCondition: default(result, 0) > 0
+  provider:
+    plugin:
+      instana/metrics:
+        metric: calls
+        aggregation: SUM
+```
+
+Argo requires every metric in the template to succeed, so a canary that
+receives no traffic fails the run instead of promoting.
+
+#### Coming from Datadog
+
+| Datadog | Instana plugin |
+|---------|----------------|
+| `sum:trace.http.request.hits{http.status_code:500}` | `metric: calls`, `aggregation: SUM`, `tagFilters` on `call.http.status` |
+| `default(result, 0)` in the condition | unchanged |
+| error rate from `trace.http.request.errors` | `metric: errors`, `aggregation: MEAN` — a ratio `0..1` of Instana-classified erroneous calls, which includes 4xx, not an HTTP 500 count |
 
 ---
 

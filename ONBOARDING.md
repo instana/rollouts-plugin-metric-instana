@@ -66,7 +66,7 @@ make build-all         # cross-compile linux amd64/arm64 into dist/
 |---|----------|--------|
 | D1 | Query `POST /api/application-monitoring/analyze/call-groups` | `/metrics/services` accepts `tagFilterExpression` but silently ignores it — a filter that looks correct would score unfiltered cluster-wide traffic. |
 | D2 | Scope the canary by `kubernetes.pod.label` keyed on `rollouts-pod-template-hash` | Argo injects the canary hash automatically via `valueFrom.podTemplateHashValue: Latest`. The label is a `KEY_VALUE_PAIR` tag; the filter needs both `key` and `value`. |
-| D3 | **An empty result is an error, never `0`** | Returning `0` for "no data" would promote a canary that is emitting no telemetry — the exact failure the gate exists to prevent. |
+| D3 | **An empty result is `nil`, never `0`; `default()` is the explicit opt-in** | Returning `0` for "no data" could promote a canary emitting no telemetry. Returning `nil` makes an unguarded condition fail, while `default(result, 0)` lets templates explicitly allow empty results when appropriate. |
 | D4 | Delegate condition evaluation to Argo's `evaluate.EvaluateResult` | `successCondition` / `failureCondition` semantics stay identical to every other provider. |
 | D5 | Publish a **raw executable**, not a zip or tarball | The Argo controller downloads the file at `location`, verifies its sha256, and execs it directly. |
 | D6 | API token via an **env var on the controller** | Simplest approach for v1. A Secret + RBAC read is the follow-up if per-namespace tokens are needed. |
@@ -79,6 +79,8 @@ make build-all         # cross-compile linux amd64/arm64 into dist/
 - **`phase=Error` ≠ bad canary.** `Failed` means the metric breached the condition; `Error` means the plugin itself is broken (wrong binary, bad token, RPC failure). Always check `phase` first.
 - **The plugin binary must match the node architecture.** A linux/amd64 binary on an arm64 node fails at exec time.
 - **The controller pod enforces `runAsNonRoot`.** An initContainer copying the binary needs a non-root `securityContext` and a pod-level `fsGroup` so the shared `emptyDir` is writable.
+- **Empty ≠ zero.** See D3. An empty result is `nil`, recorded as value `[]`. A bare `result <= 0.05` ends in `Error`; only `default(result, 0)` turns empty into a number. Guarded by `TestRun_EmptyResultWithoutDefaultIsError`, `TestRun_EmptyResultWithDefaultPasses`, the matching RPC tests, and a live test.
+- **Ambiguity ≠ pick the first.** If several groups come back and no `selectGroup` is set, the plugin errors rather than silently scoring the stable variant. A group that exists but has no series for the requested metric is also an error, so `default()` cannot hide a typo in `metric` or `aggregation`.
 - **`errors` is a ratio (0..1), not a percentage.** `successCondition: result <= 0.05` means 5%. Writing `result <= 5` would never fail.
 - **The canary/stable hash split only exists mid-rollout.** Before promotion and after, both variants share the same hash — there is one group, not two.
 - **A pod-template-hash is not globally unique.** Always set `clusterName` and `namespace` in the plugin config.
